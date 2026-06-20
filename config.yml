@@ -1,0 +1,12 @@
+bayesian_network:
+  parameter_learning:
+    method: bayesian
+    params:
+      prior_type: dirichlet
+  structure_learning:
+    method: hill_climbing
+    params:
+      max_indegree: 5
+      scoring_method: bic
+anomaly_detection:
+  method: AE
