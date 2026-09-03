@@ -1,7 +1,5 @@
 ## Towards neurosymbolic network intrusion detection
-Implementation of the paper "Towards neurosymbolic network intrusion detection" Scaraggi et al.
-
--- Code is a work in progress and may contain errors --
+This is the code base for the paper "Towards neurosymbolic network intrusion detection" Scaraggi et al. DOI: [10.1109/SmartComp-Companion70724.2026.00063](https://doi.org/10.1109/SmartComp-Companion70724.2026.00063).
 
 ### Installation
 Conda environment is recommended. To install the required packages, run the following command:
