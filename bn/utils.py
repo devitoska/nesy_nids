@@ -66,12 +66,15 @@ def get_expert_knowledge(data: pd.DataFrame, class_column: str = "class") -> Exp
     expert_knowledge = ExpertKnowledge(temporal_order=temporal_order)
     return expert_knowledge
 
-def init_bn(data: pd.DataFrame, search_strategy: str = "hill_climbing", scoring_function: str = "bic", estimator_type: str = "bayesian", **kwargs) -> DiscreteBayesianNetwork:
+def init_bn(data: pd.DataFrame, search_strategy: str = "hill_climbing",
+                                structure_learning_params: dict = {},
+                                estimator_type: str = "bayesian",
+                                parameter_learning_params: dict = {}) -> DiscreteBayesianNetwork:
 
     # Structure Learning
     expert_knowledge = get_expert_knowledge(data)
     print("Structure Learning...")
-    bn = learn_structure(data, method=search_strategy, scoring_function=scoring_function, expert_knowledge=expert_knowledge, **kwargs)
+    bn = learn_structure(data, method=search_strategy, expert_knowledge=expert_knowledge, **structure_learning_params)
     print_bn_info(bn, console=True)
 
     # Keep only Markov Blanket variables
@@ -85,7 +88,7 @@ def init_bn(data: pd.DataFrame, search_strategy: str = "hill_climbing", scoring_
 
     # Parameter Learning
     print("Parameter Learning...")
-    bn = estimate_parameters(bn, data_mb, estimator_type=estimator_type)
+    bn = estimate_parameters(bn, data_mb, estimator_type=estimator_type, **parameter_learning_params)
 
     # Check model validity
     assert bn.check_model(), "The Bayesian Network model is invalid."

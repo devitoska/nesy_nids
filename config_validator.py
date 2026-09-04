@@ -107,7 +107,7 @@ validation_schema = {
         "schema": {
           "method": {
             "type": "string",
-            "required": False,
+            "required": True,
             "default": "bayesian",
             "allowed": get_allowed_parameter_learning_methods()
           },

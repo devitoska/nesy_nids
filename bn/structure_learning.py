@@ -70,12 +70,16 @@ def pc(data, ci_test: str = 'chi_square', significance_level: float = 0.05, expe
     return bn
 
 # learn structure function
-def learn_structure(data: pd.DataFrame, method: str = 'hill_climbing', scoring_function: str = "bic", **kwargs) -> DiscreteBayesianNetwork:
+def learn_structure(data: pd.DataFrame, method: str = 'hill_climbing', **kwargs) -> DiscreteBayesianNetwork:
+
+    scoring_method = kwargs.pop('scoring_method', None)
+
     # check if scoring method if present in kwargs is valid
-    if scoring_function not in scoring_functions.keys():
-        raise ValueError(f"Scoring function {scoring_function} not recognized.")
-    else:
-        scoring_fn = scoring_functions[scoring_function]
+    if method != "pc":
+        if scoring_method not in scoring_functions.keys():
+            raise ValueError(f"Scoring function {scoring_method} not recognized.")
+        else:
+            scoring_fn = scoring_functions[scoring_method]
 
     if method == "exhaustive":
         return exhaustive_search(data, scoring_fn, **kwargs)

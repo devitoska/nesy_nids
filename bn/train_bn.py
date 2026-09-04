@@ -8,11 +8,10 @@ from bn.test import test_bn
 
 def train_bn(exp_name, config, train_data, test_data):
 
-    m = config.get("structure_learning").get("method")
-    s_m = config.get("structure_learning").get("params").get("scoring_method")
-    in_d = config.get("structure_learning").get("params").get("max_indegree")
-    t_l = config.get("structure_learning").get("params").get("tabu_length")
-    ci_t = config.get("structure_learning").get("params").get("ci_test")
+    structure_learning_method = config.get("structure_learning").get("method")
+    structure_learning_params = config.get("structure_learning").get("params", {})
+    parameter_learning_method = config.get("parameter_learning").get("method")
+    parameter_learning_params = config.get("parameter_learning").get("params", {})
 
     classes = train_data["class"].unique().tolist()
     times = {cls : 0 for cls in classes}
@@ -38,7 +37,11 @@ def train_bn(exp_name, config, train_data, test_data):
 
         # Initialize Bayesian Network
         t0 = time.time()
-        bn, full_bn = init_bn(train_data_current, search_strategy=m, scoring_function=s_m, max_indegree=in_d, tabu_length=t_l, ci_test=ci_t)
+        bn, full_bn = init_bn(train_data_current, search_strategy=structure_learning_method, 
+                              structure_learning_params=structure_learning_params, 
+                              estimator_type=parameter_learning_method,
+                              parameter_learning_params=parameter_learning_params)
+        
         t1 = time.time()
         times [cls] = round(t1 - t0, 2)
 

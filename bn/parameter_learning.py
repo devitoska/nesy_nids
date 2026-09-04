@@ -3,7 +3,7 @@ from pgmpy.estimators import MaximumLikelihoodEstimator, BayesianEstimator
 from pgmpy.models import DiscreteBayesianNetwork
 
 estimators = {
-    'maximum_likelihood': MaximumLikelihoodEstimator,
+    'mle': MaximumLikelihoodEstimator,
     'bayesian': BayesianEstimator
 }
 
