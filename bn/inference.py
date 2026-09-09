@@ -36,12 +36,15 @@ class InferenceEngine:
         return self.class_values[int(probs.argmax())]
 
     # Comp explanation vector
-    def get_explanation_vec(self, row: pd.Series, target_value: str, evidence_vars: list) -> dict:
+    def get_explanation_vec(self, row: pd.Series, target_value: str, evidence_vars: list,
+                            post_probs: list = None) -> dict:
         
         if target_value not in self.class_values:
             raise ValueError(f"target value {target_value} not in class values {self.class_values}")
         
-        post_probs = self.infer_from_row(row)
+        if post_probs is None:
+            post_probs = self.infer_from_row(row)
+            
         target_index = self.class_values.index(target_value)
         p1 = post_probs[target_index]
         explanation_vec = []
