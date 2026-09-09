@@ -1,6 +1,5 @@
 import argparse
 import yaml
-import pandas as pd
 import os
 import numpy as np
 import torch
@@ -48,17 +47,11 @@ if __name__ == "__main__":
         np.random.seed(config.get("seed", 42))
         torch.manual_seed(config.get("seed", 42))
 
-        # Load datasets
-        train1_data = pd.read_csv(os.path.join(args.data_path, "train_1_data.csv"))
-        train2_data = pd.read_csv(os.path.join(args.data_path, "train_2_data.csv"))
-        # Used to test bayesian network only
-        test_data = pd.read_csv(os.path.join(args.data_path, "test_data.csv"))
-
         # Train Bayesian Network
-        train_bn(exp_name, config.get("bayesian_network"), train1_data, test_data)
+        train_bn(exp_name, config.get("bayesian_network"), args.data_path)
 
         # Create explanation vectors for Train 2 partition
-        create_expl(exp_name, train2_data)
+        create_expl(exp_name, args.data_path)
 
         # Train anomaly detection model
         train_ad(exp_name, config.get("anomaly_detection"))

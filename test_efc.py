@@ -10,12 +10,14 @@ if __name__ == "__main__":
     print("Testing EFCs...")
 
     classes = ["backdoor", "ddos", "dos", "injection", "mitm", "password", "ransomware", "scanning", "xss"]
-    test_data = pd.read_csv("data/dataset/ton-iot_net/test_data.csv")
     
     seeds = [42] # EFC is deterministic, seed not needed, just keeping it for consistency with other models
 
     for seed in seeds:
         for unknown_cls in classes:
+            test_data = pd.read_csv(os.path.join(
+                "data/dataset/ton-iot_net", f"no_{unknown_cls}", "test_data.csv",
+            ))
 
             # load the model
             model = pickle.load(open(f"results/efc_{seed}/efc_no_{unknown_cls}.pkl", "rb"))

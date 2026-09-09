@@ -1,4 +1,4 @@
-import numpy as np
+import pandas as pd
 import os
 import time
 import logging
@@ -6,42 +6,46 @@ import logging
 from bn.utils import init_bn, load_bn, save_bn_image, save_bn_model, print_bn_info
 from bn.test import test_bn
 
-def train_bn(exp_name, config, train_data, test_data):
+def train_bn(exp_name, config, data_path):
 
     structure_learning_method = config.get("structure_learning").get("method")
     structure_learning_params = config.get("structure_learning").get("params", {})
     parameter_learning_method = config.get("parameter_learning").get("method")
     parameter_learning_params = config.get("parameter_learning").get("params", {})
 
-    classes = train_data["class"].unique().tolist()
-    times = {cls : 0 for cls in classes}
+    partitions = sorted(
+        name for name in os.listdir(data_path)
+        if name.startswith("no_") and os.path.isdir(os.path.join(data_path, name))
+    )
+    if not partitions:
+        raise ValueError(f"No held-out-class partitions found in {data_path}")
+    times = {}
 
-    # needed for bayesian network
-    for col in train_data.columns:
-        train_data[col] = train_data[col].astype(str)
-        test_data[col] = test_data[col].astype(str)
-
-    for cls in classes:
-        
-        if cls == "normal":
-            continue
+    for partition in partitions:
+        cls = partition.removeprefix("no_")
+        partition_path = os.path.join(data_path, partition)
+        train_data_current = pd.read_csv(
+            os.path.join(partition_path, "train_1_data.csv"), dtype=str,
+        )
+        test_data = pd.read_csv(
+            os.path.join(partition_path, "test_data.csv"), dtype=str,
+        )
+        if train_data_current["class"].eq(cls).any():
+            raise ValueError(f"Unknown class {cls} found in BN training data")
 
         logging.info(f"Creating BN without class '{cls}'...")
-        
-        # create partition excluding the current class
-        train_data_current = train_data[train_data["class"] != cls]
-        
+
         # Create base path for saving data model and plots
         base_save_path = f"results/{exp_name}/bn/no_{cls}"
         os.makedirs(base_save_path, exist_ok=True)
 
         # Initialize Bayesian Network
         t0 = time.time()
-        bn, full_bn = init_bn(train_data_current, search_strategy=structure_learning_method, 
-                              structure_learning_params=structure_learning_params, 
+        bn, full_bn = init_bn(train_data_current, search_strategy=structure_learning_method,
+                              structure_learning_params=structure_learning_params,
                               estimator_type=parameter_learning_method,
                               parameter_learning_params=parameter_learning_params)
-        
+
         t1 = time.time()
         times [cls] = round(t1 - t0, 2)
 

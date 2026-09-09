@@ -12,9 +12,6 @@ if __name__ == "__main__":
     classes = ["backdoor", "ddos", "dos", "injection", "mitm", "password", "ransomware", "scanning", "xss"]
     times = {cls : 0 for cls in classes}
 
-    train_1_data = pd.read_csv("data/dataset/ton-iot_net/train_1_data.csv")
-    train_2_data = pd.read_csv("data/dataset/ton-iot_net/train_2_data.csv")
-
     # Create "results" directory if it doesn't exist
     os.makedirs("results", exist_ok=True)
     
@@ -25,8 +22,9 @@ if __name__ == "__main__":
         
         for cls in classes:
 
-            df_train_1 = train_1_data[train_1_data["class"] != cls]
-            df_train_2 = train_2_data[train_2_data["class"] != cls]
+            partition_path = os.path.join("data/dataset/ton-iot_net", f"no_{cls}")
+            df_train_1 = pd.read_csv(os.path.join(partition_path, "train_1_data.csv"))
+            df_train_2 = pd.read_csv(os.path.join(partition_path, "train_2_data.csv"))
 
             df_train = pd.concat([df_train_1, df_train_2], ignore_index=True)
             y = df_train["class"].values 

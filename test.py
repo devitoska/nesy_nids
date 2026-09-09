@@ -1,5 +1,4 @@
 import argparse
-import pandas as pd
 import os
 import traceback
 import logging
@@ -24,11 +23,8 @@ if __name__ == "__main__":
         with open(os.path.join(f"results/{exp_name}", "config.yaml"), 'r') as f:
             config = yaml.safe_load(f)
     
-        # Load test dataset
-        test_data = pd.read_csv(os.path.join(args.data_path, "test_data.csv"))
-        
         # Create explanation vectors for Test partition
-        create_expl(exp_name, test_data, mode="test")
+        create_expl(exp_name, args.data_path, mode="test")
         
         # Test anomaly detection model
         test_ad(exp_name, config.get("anomaly_detection"))

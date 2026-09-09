@@ -33,7 +33,7 @@ class IF:
             y_gt_mul.append(gt)
             y_gt_bin.append(1 if gt == unknown_cls else 0)
 
-            out = models[pred].predict(x)
+            out = models[pred].model.predict(x)
             y_pred_bin.append(1 if out[0] == -1 else 0)
             y_pred_mul.append(unknown_cls if out[0] == -1 else pred)
 
