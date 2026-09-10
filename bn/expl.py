@@ -24,7 +24,7 @@ def create_dataset(data, inference_engine, mb_list, class_values, bn_path, mode 
         preds.append(pred)
         gts.append(row['class'])
         # Compute explanation vector for the row, the target is the predicted class
-        e = inference_engine.get_explanation_vec(row, target_value=pred, evidence_vars=mb_list)
+        e = inference_engine.get_explanation_vec(row, target_value=pred, evidence_vars=mb_list, post_probs=prob)
         expls.append(e)
 
     # convert to tensors and save

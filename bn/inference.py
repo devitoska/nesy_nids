@@ -47,23 +47,13 @@ class InferenceEngine:
             
         target_index = self.class_values.index(target_value)
         p1 = post_probs[target_index]
-        explanation_vec = []
+        explanation_vec = [p1, ] # first element is the posterior probability of the target class
 
         for ev_var in evidence_vars:
             post_probs_no_ev = self.infer_from_row(row, black_list=[ev_var])
             p2 = post_probs_no_ev[target_index]
-            eps = 1e-9  # to avoid division by zero
-            # compute Relative Risk
-            rr = p1 / (p2 + eps)
-            explanation_vec.append(rr)
-        
-        '''
-        #EXP: compute RR when all evidence variables are removed, to get a baseline RR without any evidence
+            explanation_vec.append(p2)
 
-        post_probs_no_all_ev = self.infer_from_row(row, black_list=evidence_vars)
-        p2 = post_probs_no_all_ev[target_index]
-        rr_all = p1 / (p2 + eps)
-        explanation_vec.append(rr_all)
-        '''
-
+        # Explanation vector is a list of posterior probabilities: 
+        # e = [P(target|evidence), P(target|evidence - ev1), P(target|evidence - ev2), ...]
         return explanation_vec

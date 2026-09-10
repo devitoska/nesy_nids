@@ -4,17 +4,21 @@ import numpy as np
 import torch
 import pickle
 import time
+from sklearn.preprocessing import RobustScaler
 
 from bn.utils import load_bn
 from ad._if import IF
 from ad._ae import AE
 from ad._vae import VAE
+from ad.utils import transform_explanations
  
 def train_ad(exp_name, config):
 
     # get all subdirectories
     bn_paths = [d for d in os.listdir(f"results/{exp_name}/bn") if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))]
     times = {}
+
+    print(f"Training anomaly detector. Config: {config}")
     
     if config["method"] == "IF":
         model_cls = IF
@@ -22,6 +26,8 @@ def train_ad(exp_name, config):
         model_cls = AE
     elif config["method"] == "VAE":
         model_cls = VAE
+
+    use_scaler = config.get("use_scaler", False)
 
     for bn_path in bn_paths:
 
@@ -34,8 +40,18 @@ def train_ad(exp_name, config):
 
         # load explanations
         X_train = torch.load(os.path.join(full_path, "explanations_train.pt")).numpy()
-        # normalize to [0, 1]
-        X_train = X_train / (1 + X_train)
+        input_dim = X_train.shape[1]
+
+        if use_scaler:
+            scaler = RobustScaler()
+            scaler.fit(X_train)
+            # save the scaler to file
+            with open(os.path.join(full_path, "scaler.pkl"), "wb") as f:
+                pickle.dump(scaler, f)
+        else:
+            scaler = None
+
+        X_train = transform_explanations(X_train, scaler=scaler)
 
         gts = pickle.load(open(os.path.join(full_path, "gts_train.pkl"), "rb"))
         preds = pickle.load(open(os.path.join(full_path, "preds_train.pkl"), "rb"))
@@ -54,7 +70,7 @@ def train_ad(exp_name, config):
         for cls in range(len(class_names)):
             data = good_by_class[cls]
             t0 = time.time()
-            model = model_cls()
+            model = model_cls(input_dim=input_dim)
             model.train(data)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)

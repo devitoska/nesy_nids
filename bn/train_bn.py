@@ -52,7 +52,11 @@ def train_bn(exp_name, config, data_path):
         # Save BN Model, Image and Info
         save_bn_model(bn, base_save_path)
         save_bn_image(bn, base_save_path)
-        print_bn_info(bn, base_save_path)
+        print_bn_info(bn, base_save_path, 
+                      search_strategy=structure_learning_method,
+                      structure_learning_params=structure_learning_params,
+                      estimator_type=parameter_learning_method,
+                      parameter_learning_params=parameter_learning_params)
 
         # save full bn image only
         save_bn_image(full_bn, base_save_path, file_name="full_bn.png")

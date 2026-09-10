@@ -9,6 +9,7 @@ from bn.utils import load_bn
 from ad._if import IF
 from ad._ae import AE
 from ad._vae import VAE
+from ad.utils import transform_explanations
  
 def test_ad(exp_name, config):
 
@@ -22,6 +23,8 @@ def test_ad(exp_name, config):
     elif config["method"] == "VAE":
         model_cls = VAE
 
+    use_scaler = config.get("use_scaler", False)
+
     for bn_path in bn_paths:
 
         unknown_cls = bn_path.split("_")[1]
@@ -33,8 +36,16 @@ def test_ad(exp_name, config):
 
         # load explanations
         X_test = torch.load(os.path.join(full_path, "explanations_test.pt")).numpy()
-        # normalize to [0, 1]
-        X_test = X_test / (1 + X_test)
+
+        if use_scaler:
+            # load the scaler from file
+            with open(os.path.join(full_path, "scaler.pkl"), "rb") as f:
+                scaler = pickle.load(f)
+        else:
+            scaler = None
+
+        X_test = transform_explanations(X_test, scaler=scaler)
+
         gts = pickle.load(open(os.path.join(full_path, "gts_test.pkl"), "rb"))
         preds = pickle.load(open(os.path.join(full_path, "preds_test.pkl"), "rb"))
         
@@ -82,8 +93,7 @@ def test_ad_recon_loss(exp_name, config, unknown_cls):
 
     # load explanations
     X_test = torch.load(os.path.join(full_path, "explanations_test.pt")).numpy()
-    # normalize to [0, 1]
-    X_test = X_test / (1 + X_test)
+    X_test = transform_explanations(X_test)
     gts = pickle.load(open(os.path.join(full_path, "gts_test.pkl"), "rb"))
     preds = pickle.load(open(os.path.join(full_path, "preds_test.pkl"), "rb"))
     

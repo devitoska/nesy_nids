@@ -142,7 +142,12 @@ validation_schema = {
             "required": True,
             "allowed": get_allowed_ad_methods(),
             "default": "ae"
-        }   
+        },
+        "use_scaler": {
+            "type": "boolean",
+            "required": False,
+            "default": False
+        },  
       }
   }
 } 

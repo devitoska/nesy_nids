@@ -19,6 +19,9 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(description="Train Neurosymbolic Intrusion Detection System")
         parser.add_argument('--config', type=str, required=False, help='Path to the config file', default="config.yml")
         parser.add_argument('--data_path', type=str, required=False, help='Path to the dataset', default="data/dataset/ton-iot_net")
+        parser.add_argument('--exp_path', type=str, required=False, help='Path to the experiment')
+        parser.add_argument('--seed', type=int, required=False, help='Random seed for reproducibility', default=42)
+        parser.add_argument('--no_ad', action='store_true', help='Flag to skip training the anomaly detection model')
         args = parser.parse_args()
 
         # Create results and logs directories if they don't exist
@@ -26,7 +29,10 @@ if __name__ == "__main__":
         os.makedirs("logs", exist_ok=True)
 
         # Experiment name
-        exp_name = "exp_" + str(int(time.time()))
+        if args.exp_path:
+            exp_name = os.path.basename(args.exp_path)
+        else:
+            exp_name = "exp_" + str(int(time.time()))
 
         logging.basicConfig(filename=f"logs/{exp_name}.log", level=logging.INFO, encoding='utf-8', force=True)
 
@@ -44,17 +50,19 @@ if __name__ == "__main__":
         validate_config(config)
 
         # Defining seeds for reproducibility
-        np.random.seed(config.get("seed", 42))
-        torch.manual_seed(config.get("seed", 42))
+        np.random.seed(config.get("seed", args.seed))
+        torch.manual_seed(config.get("seed", args.seed))
 
-        # Train Bayesian Network
-        train_bn(exp_name, config.get("bayesian_network"), args.data_path)
+        if not args.exp_path:
+            # Train Bayesian Network
+            train_bn(exp_name, config.get("bayesian_network"), args.data_path)
 
-        # Create explanation vectors for Train 2 partition
-        create_expl(exp_name, args.data_path)
+            # Create explanation vectors for Train 2 partition
+            create_expl(exp_name, args.data_path)
 
-        # Train anomaly detection model
-        train_ad(exp_name, config.get("anomaly_detection"))
+        if not args.no_ad:
+            # Train anomaly detection model
+            train_ad(exp_name, config.get("anomaly_detection"))
 
     except Exception as e:
         logging.error(traceback.format_exc())

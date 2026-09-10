@@ -8,7 +8,20 @@ from IPython.display import Image
 from bn.structure_learning import learn_structure
 from bn.parameter_learning import estimate_parameters
 
-def print_bn_info(bn, base_path : str = None, console: bool = False):
+def print_bn_info(bn, base_path : str = None, 
+                  search_strategy: str = None,
+                  structure_learning_params: dict = None,
+                  estimator_type: str = None,
+                  parameter_learning_params: dict = None,
+                  console: bool = False):
+
+    output = f"""Bayesian Network Params:
+            Structure Learning Method: {search_strategy}
+            Structure Learning Parameters: {structure_learning_params}
+            Parameter Learning Method: {estimator_type}
+            Parameter Learning Parameters: {parameter_learning_params}
+            """
+
     # Number of nodes
     num_nodes = len(bn.nodes())
     # Number of edges
@@ -24,7 +37,7 @@ def print_bn_info(bn, base_path : str = None, console: bool = False):
     # Number of leaf nodes
     num_leaf_nodes = len([node for node in bn.nodes() if len(bn.get_children(node)) == 0])
     
-    output = f"""Bayesian Network Model Info:
+    output += f"""Bayesian Network Model Info:
                 Number of nodes: {num_nodes}
                 Number of edges: {num_edges}
                 Max number of parents: {max_parents}
@@ -75,8 +88,7 @@ def init_bn(data: pd.DataFrame, search_strategy: str = "hill_climbing",
     expert_knowledge = get_expert_knowledge(data)
     print("Structure Learning...")
     bn = learn_structure(data, method=search_strategy, expert_knowledge=expert_knowledge, **structure_learning_params)
-    print_bn_info(bn, console=True)
-
+    
     # Keep only Markov Blanket variables
     mb_list = bn.get_markov_blanket("class")
     # memo full bn
