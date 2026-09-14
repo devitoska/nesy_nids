@@ -143,11 +143,27 @@ validation_schema = {
             "allowed": get_allowed_ad_methods(),
             "default": "ae"
         },
-        "use_scaler": {
-            "type": "boolean",
-            "required": False,
-            "default": False
-        },  
+        "explanations":{
+            "type": "dict",
+            "required": True,
+            "schema": {
+              "type": {
+                  "type": "integer",
+                  "required": False,
+                  "default": 1
+              },
+              "use_scaler": {
+                  "type": "boolean",
+                  "required": False,
+                  "default": False
+              },
+              "unobserved": {
+                  "type": "boolean",
+                  "required": False,
+                  "default": False
+              },
+            }
+          }
       }
   }
 } 

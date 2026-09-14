@@ -27,7 +27,9 @@ def train_ad(exp_name, config):
     elif config["method"] == "VAE":
         model_cls = VAE
 
-    use_scaler = config.get("use_scaler", False)
+    type = config["explanations"].get("type", 1)
+    use_scaler = config["explanations"].get("use_scaler", False)
+    unobserved = config["explanations"].get("unobserved", False)
 
     for bn_path in bn_paths:
 
@@ -44,15 +46,15 @@ def train_ad(exp_name, config):
 
         if use_scaler:
             scaler = RobustScaler()
-            scaler.fit(X_train)
-            # save the scaler to file
-            with open(os.path.join(full_path, "scaler.pkl"), "wb") as f:
-                pickle.dump(scaler, f)
         else:
             scaler = None
 
-        X_train = transform_explanations(X_train, scaler=scaler)
+        X_train = transform_explanations(X_train, scaler=scaler, type=type, unobserved=unobserved, mode='train')
 
+        # save the scaler to file
+        with open(os.path.join(full_path, "scaler.pkl"), "wb") as f:
+            pickle.dump(scaler, f)
+    
         gts = pickle.load(open(os.path.join(full_path, "gts_train.pkl"), "rb"))
         preds = pickle.load(open(os.path.join(full_path, "preds_train.pkl"), "rb"))
 

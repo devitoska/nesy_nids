@@ -1,8 +1,10 @@
 __pycache__
 *.pyc
+*.sh
 /saves
 .vscode
 data/dataset
 logs
-results
+results*
 nohup.out
+configs

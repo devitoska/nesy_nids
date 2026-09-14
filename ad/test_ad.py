@@ -23,7 +23,9 @@ def test_ad(exp_name, config):
     elif config["method"] == "VAE":
         model_cls = VAE
 
-    use_scaler = config.get("use_scaler", False)
+    type = config["explanations"].get("type", 1)
+    use_scaler = config["explanations"].get("use_scaler", False)
+    unobserved = config["explanations"].get("unobserved", False)
 
     for bn_path in bn_paths:
 
@@ -44,7 +46,7 @@ def test_ad(exp_name, config):
         else:
             scaler = None
 
-        X_test = transform_explanations(X_test, scaler=scaler)
+        X_test = transform_explanations(X_test, scaler=scaler, type=type, unobserved=unobserved, mode='test')
 
         gts = pickle.load(open(os.path.join(full_path, "gts_test.pkl"), "rb"))
         preds = pickle.load(open(os.path.join(full_path, "preds_test.pkl"), "rb"))
@@ -61,7 +63,7 @@ def test_ad(exp_name, config):
         # save results
         metrics = {
             "roc_auc_score": roc_auc_score(y_gt_bin, y_pred_bin),
-            "auc_score": auc(pr, rc),
+            "auc_score": auc(rc, pr),
             "fpr" : 1 - recall_score(y_gt_bin, y_pred_bin, pos_label=0),
             "classification_report_binary": classification_report(y_gt_bin, y_pred_bin, output_dict=True),
             "confusion_matrix_multiclass": confusion_matrix(y_gt_mul, y_pred_mul).tolist(),
@@ -84,6 +86,10 @@ def test_ad_recon_loss(exp_name, config, unknown_cls):
         model_cls = VAE
     else:
         raise ValueError("Reconstruction loss can only be tested for AE and VAE methods")
+
+    type = config["explanations"].get("type", 1)
+    use_scaler = config["explanations"].get("use_scaler", False)
+    unobserved = config["explanations"].get("unobserved", False)
     
     full_path = os.path.join(f"results/{exp_name}/bn/no_{unknown_cls}")
 
@@ -93,7 +99,15 @@ def test_ad_recon_loss(exp_name, config, unknown_cls):
 
     # load explanations
     X_test = torch.load(os.path.join(full_path, "explanations_test.pt")).numpy()
-    X_test = transform_explanations(X_test)
+
+    if use_scaler:
+        # load the scaler from file
+        with open(os.path.join(full_path, "scaler.pkl"), "rb") as f:
+            scaler = pickle.load(f)
+    else:
+        scaler = None
+
+    X_test = transform_explanations(X_test, scaler=scaler, type=type, unobserved=unobserved, mode='test')
     gts = pickle.load(open(os.path.join(full_path, "gts_test.pkl"), "rb"))
     preds = pickle.load(open(os.path.join(full_path, "preds_test.pkl"), "rb"))
     

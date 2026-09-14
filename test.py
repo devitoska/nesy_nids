@@ -15,6 +15,7 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(description="Test Neurosymbolic Intrusion Detection System")
         parser.add_argument('--data_path', type=str, required=False, help='Path to the dataset', default="data/dataset/ton-iot_net")
         parser.add_argument('--exp_path', type=str, required=True, help='Path to the experiment')
+        parser.add_argument('--no_expl', action='store_true', help='Flag to skip creating explanation vectors')
         parser.add_argument('--no_ad', action='store_true', help='Flag to skip testing the anomaly detection model')
         args = parser.parse_args()
 
@@ -26,7 +27,8 @@ if __name__ == "__main__":
             config = yaml.safe_load(f)
     
         # Create explanation vectors for Test partition
-        create_expl(exp_name, args.data_path, mode="test")
+        if not args.no_expl:
+            create_expl(exp_name, config["anomaly_detection"]["explanations"], args.data_path, mode="test")
 
         if not args.no_ad:
             # Test anomaly detection model

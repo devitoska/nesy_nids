@@ -9,7 +9,7 @@ import pandas as pd
 from bn.utils import load_bn
 from bn.inference import InferenceEngine
 
-def create_dataset(data, inference_engine, mb_list, class_values, bn_path, mode = "train"):
+def create_dataset(data, inference_engine, mb_list, bn_path, mode = "train", unobserved=False):
     
     expls = []
     preds = []
@@ -19,12 +19,10 @@ def create_dataset(data, inference_engine, mb_list, class_values, bn_path, mode 
 
     for _, row in data.iterrows():
         t.update(1)
-        prob = inference_engine.infer_from_row(row)
-        pred = class_values[int(prob.argmax())]
-        preds.append(pred)
-        gts.append(row['class'])
         # Compute explanation vector for the row, the target is the predicted class
-        e = inference_engine.get_explanation_vec(row, target_value=pred, evidence_vars=mb_list, post_probs=prob)
+        target_value, e = inference_engine.get_pred_expl(row, mb_list=mb_list, unobserved=unobserved)
+        gts.append(row['class'])
+        preds.append(target_value)
         expls.append(e)
 
     # convert to tensors and save
@@ -34,12 +32,13 @@ def create_dataset(data, inference_engine, mb_list, class_values, bn_path, mode 
     pickle.dump(preds, open(f"{bn_path}/preds_{mode}.pkl", "wb")) # string labels 
     pickle.dump(gts, open(f"{bn_path}/gts_{mode}.pkl", "wb")) # string labels
 
-def create_expl(exp_name, data_path, mode = "train"):
+def create_expl(exp_name, config, data_path, mode = "train"):
     
     # get all subdirectories in bn folder
     bn_paths = [d for d in os.listdir(f"results/{exp_name}/bn") if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))]
-
+    unobserved = config.get("unobserved", False)
     times = {}
+
     for bn_path in bn_paths:
         cls = bn_path.removeprefix("no_")
         full_path = os.path.join(f"results/{exp_name}/bn", bn_path)
@@ -72,7 +71,7 @@ def create_expl(exp_name, data_path, mode = "train"):
         new_data_mb = new_data[mb_list + ["class"]]
 
         t0 = time.time()
-        create_dataset(new_data_mb, inference_engine, mb_list, class_values, full_path, mode)
+        create_dataset(new_data_mb, inference_engine, mb_list, full_path, mode, unobserved=unobserved)
         t1 = time.time()
         times[cls] = round(t1 - t0, 2)
     

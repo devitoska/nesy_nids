@@ -40,7 +40,7 @@ if __name__ == "__main__":
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
 
-        os.makedirs(f"results/{exp_name}")
+        os.makedirs(f"results/{exp_name}", exist_ok=True)
 
         # Save config yaml to base path
         with open(os.path.join(f"results/{exp_name}", "config.yaml"), 'w') as f:
@@ -58,7 +58,7 @@ if __name__ == "__main__":
             train_bn(exp_name, config.get("bayesian_network"), args.data_path)
 
             # Create explanation vectors for Train 2 partition
-            create_expl(exp_name, args.data_path)
+            create_expl(exp_name, config["anomaly_detection"]["explanations"], args.data_path)
 
         if not args.no_ad:
             # Train anomaly detection model

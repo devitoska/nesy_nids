@@ -3,7 +3,6 @@ bayesian_network:
     method: bayesian
     params:
       prior_type: BDeu
-      equivalent_sample_size: 10
   structure_learning:
     method: hill_climbing
     params:
@@ -11,3 +10,5 @@ bayesian_network:
       scoring_method: bic
 anomaly_detection:
   method: AE
+  explanations:
+    type: 1

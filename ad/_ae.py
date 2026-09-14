@@ -27,7 +27,7 @@ class AENet(torch.nn.Module):
             torch.nn.BatchNorm1d(16),
             torch.nn.ReLU(),
             torch.nn.Linear(16, input_dim),
-            torch.nn.Sigmoid(),
+            #torch.nn.Sigmoid(),
         )
 
     def forward(self, x):
