@@ -5,6 +5,8 @@ This is the code base for the paper "Towards neurosymbolic network intrusion det
 Conda environment is recommended. To install the required packages, run the following command:
 
 ```bash
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 conda env create -f environment.yml
 ```
 

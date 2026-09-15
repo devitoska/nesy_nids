@@ -3,7 +3,7 @@ __pycache__
 *.sh
 /saves
 .vscode
-data/dataset
+no_*
 logs
 results*
 nohup.out
