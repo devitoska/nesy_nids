@@ -37,8 +37,11 @@ class AENet(torch.nn.Module):
     
 class AE:
 
-    def __init__(self, input_dim = None):
+    def __init__(self, input_dim = None, device = "auto"):
         self.model = None
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        ) if device == "auto" else torch.device(device)
         self.epochs = 80
         self.batch_size = 32
         self.lr = 1e-4
@@ -49,11 +52,11 @@ class AE:
     def train(self, data, seed):
         #data = torch.tensor(data, dtype=torch.float32)
         train_data, val_data = train_test_split(data, test_size=0.2, random_state=seed)
-        train_data = torch.tensor(train_data, dtype=torch.float32)
-        val_data = torch.tensor(val_data, dtype=torch.float32)
+        train_data = torch.tensor(train_data, dtype=torch.float32, device=self.device)
+        val_data = torch.tensor(val_data, dtype=torch.float32, device=self.device)
 
         # Training loop
-        self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim)
+        self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim).to(self.device)
         # use L2Loss for reconstruction loss
         loss_fn = torch.nn.MSELoss()
         optimizer =  torch.optim.Adam(self.model.parameters(), lr=self.lr)
@@ -65,11 +68,10 @@ class AE:
         best_val_loss = float("inf")
         patience = 10
         counter = 0
-        checkpoint_model = None
+        best_state = None
 
         for _ in range(self.epochs):
             self.model.train()
-            total_loss = 0
             for batch in dataloader:
                 x = batch[0]  # Extract the first element of the batch (the data)
                 optimizer.zero_grad()
@@ -77,10 +79,7 @@ class AE:
                 loss = loss_fn(x_recon, x)
                 loss.backward()
                 optimizer.step()
-                total_loss += loss.item() * x.size(0)
             
-            #avg_loss = total_loss / len(dataloader.dataset)
-            #progress_bar.set_postfix({"Avg Loss": f"{avg_loss:.4f}"})
             
             self.model.eval()
             
@@ -93,16 +92,19 @@ class AE:
                     if val_loss + 1e-5 < best_val_loss:
                         best_val_loss = val_loss
                         counter = 0
-                        # copy model object to checkpoint_model
-                        checkpoint_model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim)
-                        checkpoint_model.load_state_dict(self.model.state_dict())
+                        best_state = {
+                            name: tensor.detach().clone()
+                            for name, tensor in self.model.state_dict().items()
+                        }
                     else:
                         counter += 1
                     if counter >= patience:
                         #print(f"Early stopping at epoch {_+1}")
                         break
         
-        self.model = checkpoint_model
+        if best_state is None:
+            raise RuntimeError("AE training did not produce a valid validation checkpoint")
+        self.model.load_state_dict(best_state)
 
         # get reconstruction error on the validation set
         self.model.eval()
@@ -110,13 +112,17 @@ class AE:
         with torch.no_grad():
             X_cls = val_data
             X_recon = self.model(X_cls)
-            recon_error = torch.mean((X_recon - X_cls) ** 2, dim=1).numpy()
+            recon_error = torch.mean((X_recon - X_cls) ** 2, dim=1).detach().cpu().numpy()
             # get threshold as 99th percentile of reconstruction error
             self.threshold = np.percentile(recon_error, 99)
     
     def load(self, exp_name, unknown_cls, cls):
-        self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim)
-        self.model.load_state_dict(torch.load(f"results/{exp_name}/ad/no_{unknown_cls}/ae_{cls}.pth"))
+        self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim).to(self.device)
+        state = torch.load(
+            f"results/{exp_name}/ad/no_{unknown_cls}/ae_{cls}.pth",
+            map_location="cpu", weights_only=True,
+        )
+        self.model.load_state_dict(state)
         self.model.eval()
         self.threshold = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/threshold_{cls}.pkl", "rb"))
 
@@ -144,8 +150,9 @@ class AE:
                 y_gt_mul.append(gt)
                 y_gt_bin.append(1 if gt == unknown_cls else 0)
 
+                x = x.to(next(models[pred].model.parameters()).device)
                 x_recon = models[pred].model(x)
-                recon_error = torch.mean((x_recon - x) ** 2).numpy()
+                recon_error = torch.mean((x_recon - x) ** 2).detach().cpu().numpy()
 
                 if recon_error > models[pred].threshold:
                     y_pred_bin.append(1)
@@ -168,8 +175,9 @@ class AE:
                 x = data[i].unsqueeze(0)
                 pred = preds[i]
 
+                x = x.to(next(models[pred].model.parameters()).device)
                 x_recon = models[pred].model(x)
-                recon_error = torch.mean((x_recon - x) ** 2).numpy()
+                recon_error = torch.mean((x_recon - x) ** 2).detach().cpu().numpy()
                 recon_errors.append(recon_error)
         
         return recon_errors
