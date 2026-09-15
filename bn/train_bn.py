@@ -63,7 +63,7 @@ def train_bn(exp_name, config, data_path):
 
         # Reload because save_bn_model/save_bn_image might modify the bn object (unexpected)
         bn = load_bn(base_save_path)
-        mb_list = bn.get_markov_blanket("class")
+        mb_list = sorted(bn.get_markov_blanket("class"))
 
         # Project validation data on Markov Blanket variables + class
         test_data_mb = test_data[mb_list + ["class"]]

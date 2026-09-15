@@ -7,8 +7,8 @@ class IF:
         self.model = None
         self.contamination = contamination
 
-    def train(self, data):
-        self.model = IsolationForest(contamination=self.contamination).fit(data)
+    def train(self, data, seed):
+        self.model = IsolationForest(contamination=self.contamination, random_state=seed).fit(data)
     
     def load(self, exp_name, unknown_cls, cls):
         with open(f"results/{exp_name}/ad/no_{unknown_cls}/if_{cls}.pkl", "rb") as f:

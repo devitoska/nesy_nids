@@ -14,7 +14,10 @@ from ad.utils import transform_explanations
 def test_ad(exp_name, config):
 
     # get all subdirectories
-    bn_paths = [d for d in os.listdir(f"results/{exp_name}/bn") if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))]
+    bn_paths = sorted(
+        d for d in os.listdir(f"results/{exp_name}/bn")
+        if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))
+    )
     
     if config["method"] == "IF":
         model_cls = IF

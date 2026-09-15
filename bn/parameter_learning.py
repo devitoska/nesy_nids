@@ -7,8 +7,6 @@ estimators = {
     'bayesian': BayesianEstimator
 }
 
-# Expectation Maximization (EM), missing, can be used for parameter learning with latent variables
-
 def estimate_parameters(bn : DiscreteBayesianNetwork, data : pd.DataFrame, estimator_type : str = 'bayesian', prior_type : str = 'BDeu', equivalent_sample_size : int = 10) -> DiscreteBayesianNetwork:
     estimator_class = estimators.get(estimator_type, None)
     if estimator_class is None:

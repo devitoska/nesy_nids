@@ -35,7 +35,10 @@ def create_dataset(data, inference_engine, mb_list, bn_path, mode = "train", uno
 def create_expl(exp_name, config, data_path, mode = "train"):
     
     # get all subdirectories in bn folder
-    bn_paths = [d for d in os.listdir(f"results/{exp_name}/bn") if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))]
+    bn_paths = sorted(
+        d for d in os.listdir(f"results/{exp_name}/bn")
+        if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))
+    )
     unobserved = config.get("unobserved", False)
     times = {}
 
@@ -56,7 +59,7 @@ def create_expl(exp_name, config, data_path, mode = "train"):
 
         # compute markov blanket variables for "class" variable
         if mode == "train":
-            mb_list = bn.get_markov_blanket("class")
+            mb_list = sorted(bn.get_markov_blanket("class"))
             # save markov blanket variables to file
             with open(os.path.join(full_path, "mb_list.pkl"), "wb") as f:
                 pickle.dump(mb_list, f)

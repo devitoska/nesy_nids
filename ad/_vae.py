@@ -94,9 +94,9 @@ class VAE:
         self.val_recon_losses = []
         self.val_kl_losses = []
 
-    def train(self, data):
+    def train(self, data, seed):
         data = torch.tensor(data, dtype=torch.float32)
-        train_data, val_data = train_test_split(data, test_size=0.2, random_state=42)
+        train_data, val_data = train_test_split(data, test_size=0.2, random_state=seed)
         train_data = torch.tensor(train_data, dtype=torch.float32)
         val_data = torch.tensor(val_data, dtype=torch.float32)
         kl_weight = 1.0

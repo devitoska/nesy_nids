@@ -12,12 +12,15 @@ from ad._ae import AE
 from ad._vae import VAE
 from ad.utils import transform_explanations
  
-def train_ad(exp_name, config):
+def train_ad(exp_name, config, seed):
 
     # get all subdirectories
-    bn_paths = [d for d in os.listdir(f"results/{exp_name}/bn") if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))]
+    bn_paths = sorted(
+        d for d in os.listdir(f"results/{exp_name}/bn")
+        if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))
+    )
     times = {}
-
+    
     print(f"Training anomaly detector. Config: {config}")
     
     if config["method"] == "IF":
@@ -73,7 +76,7 @@ def train_ad(exp_name, config):
             data = good_by_class[cls]
             t0 = time.time()
             model = model_cls(input_dim=input_dim)
-            model.train(data)
+            model.train(data, seed)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)
             model.save(exp_name, unknown_cls, class_names[cls])

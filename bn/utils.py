@@ -90,7 +90,7 @@ def init_bn(data: pd.DataFrame, search_strategy: str = "hill_climbing",
     bn = learn_structure(data, method=search_strategy, expert_knowledge=expert_knowledge, **structure_learning_params)
     
     # Keep only Markov Blanket variables
-    mb_list = bn.get_markov_blanket("class")
+    mb_list = sorted(bn.get_markov_blanket("class"))
     # memo full bn
     full_bn = bn.copy()
     bn = bn.subgraph(mb_list + ["class"])
