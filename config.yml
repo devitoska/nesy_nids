@@ -10,5 +10,6 @@ bayesian_network:
       scoring_method: bic
 anomaly_detection:
   method: AE
+  rejection_rate: 0.01
   explanations:
     type: 1

@@ -3,12 +3,12 @@ from sklearn.ensemble import IsolationForest
 
 class IF:
 
-    def __init__(self, contamination=0.01):
+    def __init__(self, rejection_rate=0.01):
         self.model = None
-        self.contamination = contamination
+        self.rejection_rate = rejection_rate
 
     def train(self, data, seed):
-        self.model = IsolationForest(contamination=self.contamination, random_state=seed).fit(data)
+        self.model = IsolationForest(contamination=self.rejection_rate, random_state=seed).fit(data)
     
     def load(self, exp_name, unknown_cls, cls):
         with open(f"results/{exp_name}/ad/no_{unknown_cls}/if_{cls}.pkl", "rb") as f:

@@ -30,6 +30,7 @@ def train_ad(exp_name, config, seed):
     elif config["method"] == "VAE":
         model_cls = VAE
 
+    rejection_rate = config.get("rejection_rate", 0.01)
     type = config["explanations"].get("type", 1)
     use_scaler = config["explanations"].get("use_scaler", False)
     unobserved = config["explanations"].get("unobserved", False)
@@ -75,7 +76,7 @@ def train_ad(exp_name, config, seed):
         for cls in range(len(class_names)):
             data = good_by_class[cls]
             t0 = time.time()
-            model = model_cls(input_dim=input_dim)
+            model = model_cls(input_dim=input_dim, rejection_rate=rejection_rate)
             model.train(data, seed)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)

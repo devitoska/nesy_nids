@@ -143,6 +143,13 @@ validation_schema = {
             "allowed": get_allowed_ad_methods(),
             "default": "ae"
         },
+        "rejection_rate": {
+            "type": "float",
+            "min": 0.0,
+            "max": 1.0,
+            "required": False,
+            "default": 0.01
+        },
         "explanations":{
             "type": "dict",
             "required": True,

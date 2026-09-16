@@ -37,8 +37,9 @@ class AENet(torch.nn.Module):
     
 class AE:
 
-    def __init__(self, input_dim = None, device = "auto"):
+    def __init__(self, input_dim = None, rejection_rate = 0.01, device = "auto"):
         self.model = None
+        self.rejection_rate = rejection_rate
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         ) if device == "auto" else torch.device(device)
@@ -113,8 +114,7 @@ class AE:
             X_cls = val_data
             X_recon = self.model(X_cls)
             recon_error = torch.mean((X_recon - X_cls) ** 2, dim=1).detach().cpu().numpy()
-            # get threshold as 99th percentile of reconstruction error
-            self.threshold = np.percentile(recon_error, 99)
+            self.threshold = np.percentile(recon_error, 100 * (1 - self.rejection_rate))
     
     def load(self, exp_name, unknown_cls, cls):
         self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim).to(self.device)

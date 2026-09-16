@@ -77,8 +77,9 @@ class VAENet(nn.Module):
 
 class VAE:
 
-    def __init__(self, input_dim = None, device = "auto"):
+    def __init__(self, input_dim = None, rejection_rate = 0.01, device = "auto"):
         self.model = None
+        self.rejection_rate = rejection_rate
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         ) if device == "auto" else torch.device(device)
@@ -181,8 +182,7 @@ class VAE:
             X_cls = val_data
             output = self.model(X_cls, kl_weight)
             recon_error = F.mse_loss(output.x_recon, X_cls, reduction='mean').detach().cpu().numpy()
-            # get threshold as 99th percentile of reconstruction error
-            self.threshold = np.percentile(recon_error, 99)
+            self.threshold = np.percentile(recon_error, 100 * (1 - self.rejection_rate))
     
     def load(self, exp_name, unknown_cls, cls):
         self.model = VAENet(input_dim=self.input_dim, latent_dim=self.latent_dim).to(self.device)
