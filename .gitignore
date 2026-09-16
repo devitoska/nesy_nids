@@ -8,3 +8,4 @@ logs
 results*
 nohup.out
 configs
+tests
