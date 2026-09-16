@@ -46,12 +46,8 @@ def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserve
     eps = 1e-6  # Small constant to avoid division by zero
 
     if unobserved:
-        # create a mask with True where the values are equal to -1
-        if type > 1:
-            unobserved_mask = (E == -1)
-        else:
-            unobserved_mask = (E[:, 1:] == -1)  # Only check columns after the first
-
+        # create a mask with True where the values are equal to -1, first column cannot be -1, so we can safely ignore it
+        unobserved_mask = (E == -1)
         # substitute mask with safe probabilities (to avoid big intermediate calculations)
         E[unobserved_mask] = 0.5  # Replace -1 with a safe value
    

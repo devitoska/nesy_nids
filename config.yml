@@ -13,3 +13,4 @@ anomaly_detection:
   rejection_rate: 0.01
   explanations:
     type: 1
+    unobserved: true
