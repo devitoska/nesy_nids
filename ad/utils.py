@@ -81,7 +81,11 @@ def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserve
     # If unobserved is True, replace the -1 values with the corresponding special values
     special_values = {1: 0, 2: -1, 3: 2*np.log((eps)/(1-eps)), 4: 0}
     if unobserved:
-        transformed_E[unobserved_mask] = special_values[type]
+        if type > 1:
+            transformed_E[unobserved_mask] = special_values[type]
+        else:
+            # exclude the first column from the mask for type 1
+            transformed_E[unobserved_mask[:, 1:]] = special_values[type]
 
     if scaler is not None:
         if mode == 'train':
