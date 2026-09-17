@@ -77,7 +77,7 @@ class VAENet(nn.Module):
 
 class VAE:
 
-    def __init__(self, input_dim = None, rejection_rate = 0.01, device = "auto"):
+    def __init__(self, input_dim = None, rejection_rate = 0.01, device = "auto", **kwargs):
         self.model = None
         self.rejection_rate = rejection_rate
         self.device = torch.device(

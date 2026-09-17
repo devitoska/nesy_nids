@@ -3,7 +3,7 @@ from sklearn.ensemble import IsolationForest
 
 class IF:
 
-    def __init__(self, rejection_rate=0.01):
+    def __init__(self, rejection_rate=0.01, **kwargs):
         self.model = None
         self.rejection_rate = rejection_rate
 

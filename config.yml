@@ -11,6 +11,8 @@ bayesian_network:
 anomaly_detection:
   method: AE
   rejection_rate: 0.01
+  score: mse
   explanations:
     type: 1
     unobserved: true
+    misclassified: true

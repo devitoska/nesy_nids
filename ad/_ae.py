@@ -4,6 +4,7 @@ import torch.nn
 import pickle
 import numpy as np
 from sklearn.model_selection import train_test_split
+from ad.utils import calc_anomaly_score
 
 class AENet(torch.nn.Module):
     
@@ -37,9 +38,10 @@ class AENet(torch.nn.Module):
     
 class AE:
 
-    def __init__(self, input_dim = None, rejection_rate = 0.01, device = "auto"):
+    def __init__(self, input_dim = None, rejection_rate = 0.01, score = "mse", device = "auto"):
         self.model = None
         self.rejection_rate = rejection_rate
+        self.score = score
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         ) if device == "auto" else torch.device(device)
@@ -47,6 +49,8 @@ class AE:
         self.batch_size = 32
         self.lr = 1e-4
         self.threshold = None
+        self.residual_mean = None
+        self.residual_cov = None
         self.input_dim = input_dim
         self.latent_dim = 4
 
@@ -107,14 +111,19 @@ class AE:
             raise RuntimeError("AE training did not produce a valid validation checkpoint")
         self.model.load_state_dict(best_state)
 
-        # get reconstruction error on the validation set
+        # get anomaly score on the validation set
         self.model.eval()
         
         with torch.no_grad():
             X_cls = val_data
             X_recon = self.model(X_cls)
-            recon_error = torch.mean((X_recon - X_cls) ** 2, dim=1).detach().cpu().numpy()
-            self.threshold = np.percentile(recon_error, 100 * (1 - self.rejection_rate))
+            residuals = torch.abs(X_cls - X_recon)
+            self.residual_mean = residuals.mean(dim=0)
+            centered = residuals - self.residual_mean
+            self.residual_cov = centered.T @ centered / (len(residuals) - 1)
+            anomaly_scores = calc_anomaly_score(X_cls, X_recon, score=self.score, 
+                                                residual_mean=self.residual_mean, residual_cov=self.residual_cov)
+            self.threshold = np.percentile(anomaly_scores, 100 * (1 - self.rejection_rate))
     
     def load(self, exp_name, unknown_cls, cls):
         self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim).to(self.device)
@@ -125,12 +134,18 @@ class AE:
         self.model.load_state_dict(state)
         self.model.eval()
         self.threshold = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/threshold_{cls}.pkl", "rb"))
+        self.residual_mean = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/residual_mean_{cls}.pkl", "rb"))
+        self.residual_cov = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/residual_cov_{cls}.pkl", "rb"))
 
     def save(self, exp_name, unknown_cls, class_name):
         torch.save(self.model.state_dict(), f"results/{exp_name}/ad/no_{unknown_cls}/ae_{class_name}.pth")
         with open(f"results/{exp_name}/ad/no_{unknown_cls}/threshold_{class_name}.pkl", "wb") as f:
             pickle.dump(self.threshold, f)
-    
+        with open(f"results/{exp_name}/ad/no_{unknown_cls}/residual_mean_{class_name}.pkl", "wb") as f:
+            pickle.dump(self.residual_mean, f)
+        with open(f"results/{exp_name}/ad/no_{unknown_cls}/residual_cov_{class_name}.pkl", "wb") as f:
+            pickle.dump(self.residual_cov, f)
+
     @staticmethod
     def test(models, data, gts, preds, unknown_cls):
         data = torch.tensor(data, dtype=torch.float32)
@@ -152,9 +167,10 @@ class AE:
 
                 x = x.to(next(models[pred].model.parameters()).device)
                 x_recon = models[pred].model(x)
-                recon_error = torch.mean((x_recon - x) ** 2).detach().cpu().numpy()
+                anomaly_score = calc_anomaly_score(x, x_recon, score=models[pred].score, 
+                                                   residual_mean=models[pred].residual_mean, residual_cov=models[pred].residual_cov)
 
-                if recon_error > models[pred].threshold:
+                if anomaly_score > models[pred].threshold:
                     y_pred_bin.append(1)
                     y_pred_mul.append(unknown_cls)
                 else:
@@ -164,20 +180,18 @@ class AE:
         return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul
 
     @staticmethod
-    def recon_error(models, data, preds):
+    def get_anomaly_scores(models, data, preds):
         data = torch.tensor(data, dtype=torch.float32)
-        
-        recon_errors = []
-
+        anomaly_scores = []
         with torch.no_grad():
             # for each data in test
             for i in range(data.shape[0]):
                 x = data[i].unsqueeze(0)
                 pred = preds[i]
-
                 x = x.to(next(models[pred].model.parameters()).device)
                 x_recon = models[pred].model(x)
-                recon_error = torch.mean((x_recon - x) ** 2).detach().cpu().numpy()
-                recon_errors.append(recon_error)
+                anomaly_score = calc_anomaly_score(x, x_recon, score=models[pred].score,
+                                                   residual_mean=models[pred].residual_mean, residual_cov=models[pred].residual_cov)
+                anomaly_scores.append(anomaly_score.item())
         
-        return recon_errors
+        return anomaly_scores

@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 def plot_losses(train_losses, val_losses, 
                 train_recon_losses, val_recon_losses, 
@@ -96,3 +97,62 @@ def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserve
             raise ValueError("Invalid mode. Use 'train' or 'test'.")
 
     return transformed_E
+
+def calc_anomaly_score(
+    x: torch.Tensor, x_: torch.Tensor, score="mse", *,
+    residual_mean: torch.Tensor = None, residual_cov: torch.Tensor = None,
+):
+    """Return MSE or ordinary (not squared) residual Mahalanobis distance.
+
+    Matching inputs of shape (d,) return a zero-dimensional NumPy array;
+    inputs of shape (n, d) return an array of shape (n,).
+    For 'mah', supply the mean (d,) and unregularized covariance (d, d)
+    fitted from reference absolute residuals, not from the samples being
+    scored. Both statistics must share a floating dtype and the input device.
+    Covariance must be symmetric positive definite; no regularization or
+    pseudoinverse is applied.
+    """
+    if score not in ("mse", "mah"):
+        raise ValueError("Invalid score type. Use 'mse' or 'mah'.")
+    if not isinstance(x, torch.Tensor) or not isinstance(x_, torch.Tensor):
+        raise TypeError("Inputs must be torch tensors.")
+    if x.shape != x_.shape or x.ndim not in (1, 2) or x.shape[-1] == 0:
+        raise ValueError("Inputs must have matching shapes (d,) or (n, d), with d > 0.")
+    if x.device != x_.device or x.dtype != x_.dtype:
+        raise ValueError("Inputs must share a device and dtype.")
+    if not x.is_floating_point() or not torch.isfinite(x).all() or not torch.isfinite(x_).all():
+        raise ValueError("Inputs must contain finite floating-point values.")
+
+    if score == "mse":
+        scores = (x - x_).square().mean(dim=-1)
+    else:
+        if residual_mean is None or residual_cov is None:
+            raise ValueError("Mahalanobis scoring requires fitted residual_mean and residual_cov.")
+        if not isinstance(residual_mean, torch.Tensor) or not isinstance(residual_cov, torch.Tensor):
+            raise TypeError("Residual statistics must be torch tensors.")
+        d = x.shape[-1]
+        if residual_mean.shape != (d,) or residual_cov.shape != (d, d):
+            raise ValueError("Residual mean and covariance must have shapes (d,) and (d, d).")
+        if residual_mean.device != x.device or residual_cov.device != x.device:
+            raise ValueError("Residual statistics must be on the input device.")
+        if residual_mean.dtype != residual_cov.dtype or residual_cov.dtype not in (torch.float32, torch.float64):
+            raise ValueError("Residual statistics must share a float32 or float64 dtype.")
+        if not torch.isfinite(residual_mean).all() or not torch.isfinite(residual_cov).all():
+            raise ValueError("Residual statistics must contain finite values.")
+        if not torch.allclose(residual_cov, residual_cov.T):
+            raise ValueError("Residual covariance must be symmetric.")
+        try:
+            chol = torch.linalg.cholesky(residual_cov)
+        except torch.linalg.LinAlgError as exc:
+            raise ValueError("Unregularized residual covariance must be positive definite.") from exc
+
+        residuals = (x - x_).abs().to(dtype=residual_cov.dtype)
+        centered = (residuals.unsqueeze(0) if x.ndim == 1 else residuals) - residual_mean
+        whitened = torch.linalg.solve_triangular(chol, centered.T, upper=False)
+        scores = whitened.square().sum(dim=0).sqrt()
+        if x.ndim == 1:
+            scores = scores[0]
+
+    if not torch.isfinite(scores).all():
+        raise ValueError("Anomaly scores are non-finite; check input magnitudes and covariance conditioning.")
+    return scores.detach().cpu().numpy()

@@ -31,9 +31,11 @@ def train_ad(exp_name, config, seed):
         model_cls = VAE
 
     rejection_rate = config.get("rejection_rate", 0.01)
+    score = config.get("score", "mse")
     type = config["explanations"].get("type", 1)
     use_scaler = config["explanations"].get("use_scaler", False)
     unobserved = config["explanations"].get("unobserved", False)
+    misclassified = config["explanations"].get("misclassified", False)
 
     for bn_path in bn_paths:
 
@@ -65,18 +67,30 @@ def train_ad(exp_name, config, seed):
         gts = np.array([class_names.index(gt) for gt in gts])
         preds = np.array([class_names.index(pred) for pred in preds])
 
-        good_by_class = {}
-        
-        for cls in range(len(class_names)):
-            good_by_class[cls] = X_train[(gts == cls) & (preds == cls)]
-
         times[unknown_cls] = 0
         os.makedirs(f"results/{exp_name}/ad/no_{unknown_cls}", exist_ok=True)
         
         for cls in range(len(class_names)):
-            data = good_by_class[cls]
+            good_by_class = X_train[(gts == cls) & (preds == cls)]
+            pred_by_class = X_train[(preds == cls)]
+            mis_by_class = X_train[(gts != cls) & (preds == cls)]
+
+            rr = 0.001 # redefining rejection rate for each class
+
+            if misclassified:
+                data = pred_by_class
+                if rejection_rate == "auto": # setting auto rejection rate
+                    if len(pred_by_class) > 0:
+                        rr = max(rr, len(mis_by_class) / len(pred_by_class))
+                else: # setting user-defined rejection rate
+                    rr = rejection_rate
+            else:
+                data = good_by_class
+                if rejection_rate != "auto": # setting user-defined rejection rate
+                    rr = rejection_rate
+
             t0 = time.time()
-            model = model_cls(input_dim=input_dim, rejection_rate=rejection_rate)
+            model = model_cls(input_dim=input_dim, rejection_rate=rr, score=score)
             model.train(data, seed)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)

@@ -22,6 +22,9 @@ def get_allowed_prior_types():
 def get_allowed_ad_methods():
     return ["IF", "AE", "VAE"]
 
+def get_allowed_rejection_rates():
+    return [0.001, 0.01, 0.02, 0.05, "auto"]
+
 validation_schema = {
   "name": {
     "type": "string",
@@ -144,11 +147,16 @@ validation_schema = {
             "default": "ae"
         },
         "rejection_rate": {
-            "type": "float",
-            "min": 0.0,
-            "max": 1.0,
+            "type": ["float", "string"],
             "required": False,
-            "default": 0.01
+            "default": 0.01,
+            "allowed" : get_allowed_rejection_rates()
+        },
+        "score" : {
+            "type": "string",
+            "required": False,
+            "allowed": ["mse", "mah"],
+            "default": "mse"
         },
         "explanations":{
             "type": "dict",
@@ -169,6 +177,11 @@ validation_schema = {
                   "required": False,
                   "default": False
               },
+              "misclassified": {
+                  "type": "boolean",
+                  "required": False,
+                  "default": False
+              }
             }
           }
       }
