@@ -17,6 +17,8 @@ metrics and column minima for counts, including ties before display rounding.
 If an efc/ subfolder exists, include its fixed baseline in every comparison
 and write metrics_efc.csv and unknown_mis_efc.csv with values only (no SD/CI).
 Use --no-plots for CSV only.
+Comparison labels use the saved config's explanation settings: Type <number>,
+with optional u (unobserved) and m (misclassified) suffixes, in that order.
 """
 
 import argparse
@@ -271,19 +273,19 @@ def build_comparison(groups, reports):
             average_stats = summarize(per_seed_averages)
             means.loc["Average"] = average_stats[0]
             stds.loc["Average"] = average_stats[1]
-        explanation_type = group["config"].get("anomaly_detection", {}).get("explanations", {}).get("type")
-        label = "EFC" if baseline else (f"Type {explanation_type}" if explanation_type is not None else name)
+        explanations = group["config"].get("anomaly_detection", {}).get("explanations", {})
+        label = "EFC" if baseline else f"Type {explanations.get('type', 1)}"
+        if not baseline:
+            if explanations.get("unobserved", False):
+                label += " u"
+            if explanations.get("misclassified", False):
+                label += " m"
         comparison.append({
             "name": name, "label": label, "n": len(group["runs"]),
             "baseline": baseline,
             "means": means, "stds": stds,
             "counts": counts.reindex(index=["mean", "std"], columns=reference_counts),
         })
-    # Different settings may share the same explanation type.
-    labels = [item["label"] for item in comparison]
-    for item in comparison:
-        if labels.count(item["label"]) > 1:
-            item["label"] += f" ({item['name']})"
     return comparison
 
 
