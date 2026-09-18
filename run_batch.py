@@ -245,8 +245,8 @@ def main():
         parser.error("--num_seed exceeds the recommended maximum of 20")
     if args.threads < 1:
         parser.error("--threads must be positive")
-    if args.threads > 4:
-        parser.error("--threads exceeds the recommended maximum of 4")
+    if args.threads > os.cpu_count():
+        parser.error("--threads exceeds the recommended maximum of os.cpu_count()")
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be a positive, finite number of seconds")
     if not 0 <= args.seed < 2**32:
