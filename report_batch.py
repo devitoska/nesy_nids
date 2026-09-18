@@ -19,6 +19,7 @@ and write metrics_efc.csv and unknown_mis_efc.csv with values only (no SD/CI).
 Use --no-plots for CSV only.
 Comparison labels use the saved config's explanation settings: Type <number>,
 with optional u (unobserved) and m (misclassified) suffixes, in that order.
+Append <score>@<rejection_rate>, defaulting to mse@0.01 as in training.
 """
 
 import argparse
@@ -273,13 +274,17 @@ def build_comparison(groups, reports):
             average_stats = summarize(per_seed_averages)
             means.loc["Average"] = average_stats[0]
             stds.loc["Average"] = average_stats[1]
-        explanations = group["config"].get("anomaly_detection", {}).get("explanations", {})
+        anomaly_detection = group["config"].get("anomaly_detection", {})
+        explanations = anomaly_detection.get("explanations", {})
         label = "EFC" if baseline else f"Type {explanations.get('type', 1)}"
         if not baseline:
             if explanations.get("unobserved", False):
                 label += " u"
             if explanations.get("misclassified", False):
                 label += " m"
+            score = anomaly_detection.get("score", "mse")
+            rejection_rate = anomaly_detection.get("rejection_rate", 0.01)
+            label += f" {score}@{rejection_rate}"
         comparison.append({
             "name": name, "label": label, "n": len(group["runs"]),
             "baseline": baseline,
