@@ -152,6 +152,13 @@ validation_schema = {
             "default": 0.01,
             "allowed" : get_allowed_rejection_rates()
         },
+        "EVT_rejection_rate": {
+                    "type": "float",
+                    "required": False,
+                    "default": None,
+                    "min": 0.001,
+                    "max": 1.0
+        },
         "score" : {
             "type": "string",
             "required": False,

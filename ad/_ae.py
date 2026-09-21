@@ -38,9 +38,11 @@ class AENet(torch.nn.Module):
     
 class AE:
 
-    def __init__(self, input_dim = None, rejection_rate = 0.01, score = "mse", device = "auto"):
+    def __init__(self, input_dim = None, rejection_rate = 0.01, 
+                 EVT_rejection_rate = None, score = "mse", device = "auto"):
         self.model = None
         self.rejection_rate = rejection_rate
+        self.EVT_rejection_rate = EVT_rejection_rate
         self.score = score
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
@@ -120,6 +122,7 @@ class AE:
             residuals = torch.abs(X_cls - X_recon)
             self.residual_mean = residuals.mean(dim=0)
             centered = residuals - self.residual_mean
+            assert len(residuals) >= 2, "At least two validation samples are required to compute residual covariance."
             self.residual_cov = centered.T @ centered / (len(residuals) - 1)
             anomaly_scores = calc_anomaly_score(X_cls, X_recon, score=self.score, 
                                                 residual_mean=self.residual_mean, residual_cov=self.residual_cov)

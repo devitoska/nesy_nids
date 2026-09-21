@@ -109,8 +109,9 @@ def calc_anomaly_score(
     For 'mah', supply the mean (d,) and unregularized covariance (d, d)
     fitted from reference absolute residuals, not from the samples being
     scored. Both statistics must share a floating dtype and the input device.
-    Covariance must be symmetric positive definite; no regularization or
-    pseudoinverse is applied.
+    Covariance must be symmetric. Before factorization, a diagonal ridge of
+    1e-6 * max(mean diagonal variance, 1) is added without modifying the supplied
+    covariance. The same regularization is used for calibration and inference.
     """
     if score not in ("mse", "mah"):
         raise ValueError("Invalid score type. Use 'mse' or 'mah'.")
@@ -141,10 +142,14 @@ def calc_anomaly_score(
             raise ValueError("Residual statistics must contain finite values.")
         if not torch.allclose(residual_cov, residual_cov.T):
             raise ValueError("Residual covariance must be symmetric.")
+        ridge = 1e-6 * residual_cov.diagonal().mean().clamp_min(1.0)
+        regularized_cov = residual_cov + ridge * torch.eye(
+            d, dtype=residual_cov.dtype, device=residual_cov.device
+        )
         try:
-            chol = torch.linalg.cholesky(residual_cov)
+            chol = torch.linalg.cholesky(regularized_cov)
         except torch.linalg.LinAlgError as exc:
-            raise ValueError("Unregularized residual covariance must be positive definite.") from exc
+            raise ValueError("Residual covariance is not positive definite after regularization.") from exc
 
         residuals = (x - x_).abs().to(dtype=residual_cov.dtype)
         centered = (residuals.unsqueeze(0) if x.ndim == 1 else residuals) - residual_mean
