@@ -210,6 +210,7 @@ class VAE:
         y_pred_bin = []
         y_gt_mul = []
         y_pred_mul = []
+        ad_scores = []
 
         with torch.no_grad():
             # for each data in test
@@ -232,7 +233,7 @@ class VAE:
                     y_pred_bin.append(0)
                     y_pred_mul.append(pred)
         
-        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul
+        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores
 
     @staticmethod
     def recon_error(models, data, preds):

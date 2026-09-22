@@ -164,6 +164,7 @@ class AE:
         y_pred_bin = []
         y_gt_mul = []
         y_pred_mul = []
+        ad_scores = []
 
         with torch.no_grad():
             # for each data in test
@@ -179,6 +180,7 @@ class AE:
                 x_recon = models[pred].model(x)
                 anomaly_score = calc_anomaly_score(x, x_recon, score=models[pred].score, 
                                                    residual_mean=models[pred].residual_mean, residual_cov=models[pred].residual_cov)
+                ad_scores.append(anomaly_score.item())
 
                 if anomaly_score > models[pred].threshold:
                     y_pred_bin.append(1)
@@ -187,7 +189,7 @@ class AE:
                     y_pred_bin.append(0)
                     y_pred_mul.append(pred)
         
-        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul
+        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores
 
     @staticmethod
     def get_anomaly_scores(models, data, preds):

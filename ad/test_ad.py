@@ -64,13 +64,13 @@ def test_ad(exp_name, config):
                                        EVT_rejection_rate=EVT_rejection_rate, loss=loss, score=score)
             ad_models[cls].load(exp_name, unknown_cls, cls)
 
-        y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul = model_cls.test(ad_models, X_test, gts, preds, unknown_cls)
+        y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores = model_cls.test(ad_models, X_test, gts, preds, unknown_cls)
 
-        pr, rc, _ = precision_recall_curve(y_gt_bin, y_pred_bin)
+        pr, rc, _ = precision_recall_curve(y_gt_bin, ad_scores)
 
         # save results
         metrics = {
-            "roc_auc_score": roc_auc_score(y_gt_bin, y_pred_bin),
+            "roc_auc_score": roc_auc_score(y_gt_bin, ad_scores),
             "auc_score": auc(rc, pr),
             "fpr" : 1 - recall_score(y_gt_bin, y_pred_bin, pos_label=0),
             "classification_report_binary": classification_report(y_gt_bin, y_pred_bin, output_dict=True),

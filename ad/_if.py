@@ -24,6 +24,7 @@ class IF:
         y_pred_bin = []
         y_gt_mul = []
         y_pred_mul = []
+        ad_scores = []
 
         # for each data in test
         for i in range(data.shape[0]):
@@ -35,7 +36,10 @@ class IF:
             y_gt_bin.append(1 if gt == unknown_cls else 0)
 
             out = models[pred].model.predict(x)
+            anomaly_score = models[pred].model.decision_function(x)
+
             y_pred_bin.append(1 if out[0] == -1 else 0)
             y_pred_mul.append(unknown_cls if out[0] == -1 else pred)
+            ad_scores.append(anomaly_score[0])
 
-        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul
+        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores
