@@ -30,6 +30,7 @@ def train_ad(exp_name, config, seed):
     elif config["method"] == "VAE":
         model_cls = VAE
 
+    loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)
     EVT_rejection_rate = config.get("EVT_rejection_rate", None)
     score = config.get("score", "mse")
@@ -92,7 +93,7 @@ def train_ad(exp_name, config, seed):
 
             t0 = time.time()
             model = model_cls(input_dim=input_dim, rejection_rate=rr, 
-                              EVT_rejection_rate=EVT_rejection_rate, score=score)
+                              EVT_rejection_rate=EVT_rejection_rate, loss = loss, score=score)
             model.train(data, seed)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)

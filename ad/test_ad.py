@@ -26,7 +26,9 @@ def test_ad(exp_name, config):
     elif config["method"] == "VAE":
         model_cls = VAE
 
+    loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)
+    EVT_rejection_rate = config.get("EVT_rejection_rate", None)
     score = config.get("score", "mse")
     type = config["explanations"].get("type", 1)
     use_scaler = config["explanations"].get("use_scaler", False)
@@ -58,7 +60,8 @@ def test_ad(exp_name, config):
         
         ad_models = {}
         for cls in class_names:
-            ad_models[cls] = model_cls(input_dim=X_test.shape[1], rejection_rate=rejection_rate, score=score)
+            ad_models[cls] = model_cls(input_dim=X_test.shape[1], rejection_rate=rejection_rate, 
+                                       EVT_rejection_rate=EVT_rejection_rate, loss=loss, score=score)
             ad_models[cls].load(exp_name, unknown_cls, cls)
 
         y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul = model_cls.test(ad_models, X_test, gts, preds, unknown_cls)
@@ -92,7 +95,9 @@ def test_ad_recon_loss(exp_name, config, unknown_cls):
     else:
         raise ValueError("Reconstruction loss can only be tested for AE and VAE methods")
 
+    loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)
+    EVT_rejection_rate = config.get("EVT_rejection_rate", 0.05)
     score = config.get("score", "mse")
     type = config["explanations"].get("type", 1)
     use_scaler = config["explanations"].get("use_scaler", False)
@@ -120,7 +125,8 @@ def test_ad_recon_loss(exp_name, config, unknown_cls):
     
     ad_models = {}
     for cls in class_names:
-        ad_models[cls] = model_cls(input_dim=X_test.shape[1], rejection_rate=rejection_rate, score=score)
+        ad_models[cls] = model_cls(input_dim=X_test.shape[1], rejection_rate=rejection_rate, 
+                                   EVT_rejection_rate=EVT_rejection_rate, loss=loss, score=score)
         ad_models[cls].load(exp_name, unknown_cls, cls)
 
     anomaly_scores = model_cls.get_anomaly_scores(ad_models, X_test, preds)

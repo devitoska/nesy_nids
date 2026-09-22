@@ -38,8 +38,9 @@ class AENet(torch.nn.Module):
 class AE:
 
     def __init__(self, input_dim = None, rejection_rate = 0.01, 
-                 EVT_rejection_rate = None, score = "mse", device = "auto"):
+                 EVT_rejection_rate = None, loss = "l2", score = "mse", device = "auto"):
         self.model = None
+        self.loss = loss
         self.rejection_rate = rejection_rate
         self.EVT_rejection_rate = EVT_rejection_rate
         self.score = score
@@ -63,8 +64,14 @@ class AE:
 
         # Training loop
         self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim).to(self.device)
-        # use L2Loss for reconstruction loss
-        loss_fn = torch.nn.MSELoss()
+
+        if self.loss == "l2":
+            loss_fn = torch.nn.MSELoss()
+        elif self.loss == "huber":
+            loss_fn = torch.nn.HuberLoss(delta=0.5)
+        else:
+            raise ValueError("Invalid loss function")
+
         optimizer =  torch.optim.Adam(self.model.parameters(), lr=self.lr)
         
         dataset = torch.utils.data.TensorDataset(train_data)

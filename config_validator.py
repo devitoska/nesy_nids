@@ -146,6 +146,12 @@ validation_schema = {
             "allowed": get_allowed_ad_methods(),
             "default": "ae"
         },
+        "loss" : {
+            "type": "string",
+            "required": False,
+            "allowed": ["l2", "huber"],
+            "default": "l2"
+        },
         "rejection_rate": {
             "type": ["float", "string"],
             "required": False,

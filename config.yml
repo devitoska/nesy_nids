@@ -10,6 +10,7 @@ bayesian_network:
       scoring_method: bic
 anomaly_detection:
   method: AE
+  loss: l2
   rejection_rate: 0.05
   EVT_rejection_rate: 0.01
   score: mse
