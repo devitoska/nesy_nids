@@ -2,9 +2,8 @@ import pickle
 import torch
 import torch.nn
 import pickle
-import numpy as np
 from sklearn.model_selection import train_test_split
-from ad.utils import calc_anomaly_score
+from ad.utils import calc_anomaly_score, finalize_threshold
 
 class AENet(torch.nn.Module):
     
@@ -126,8 +125,9 @@ class AE:
             self.residual_cov = centered.T @ centered / (len(residuals) - 1)
             anomaly_scores = calc_anomaly_score(X_cls, X_recon, score=self.score, 
                                                 residual_mean=self.residual_mean, residual_cov=self.residual_cov)
-            self.threshold = np.percentile(anomaly_scores, 100 * (1 - self.rejection_rate))
-    
+
+            self.threshold = finalize_threshold(anomaly_scores, self.rejection_rate, self.EVT_rejection_rate)
+
     def load(self, exp_name, unknown_cls, cls):
         self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim).to(self.device)
         state = torch.load(
