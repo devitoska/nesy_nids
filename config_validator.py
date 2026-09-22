@@ -154,6 +154,7 @@ validation_schema = {
         },
         "EVT_rejection_rate": {
                     "type": "float",
+                    "nullable": True,
                     "required": False,
                     "default": None,
                     "min": 0.001,

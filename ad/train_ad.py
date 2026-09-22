@@ -31,6 +31,7 @@ def train_ad(exp_name, config, seed):
         model_cls = VAE
 
     rejection_rate = config.get("rejection_rate", 0.01)
+    EVT_rejection_rate = config.get("EVT_rejection_rate", None)
     score = config.get("score", "mse")
     type = config["explanations"].get("type", 1)
     use_scaler = config["explanations"].get("use_scaler", False)
@@ -90,7 +91,8 @@ def train_ad(exp_name, config, seed):
                     rr = rejection_rate
 
             t0 = time.time()
-            model = model_cls(input_dim=input_dim, rejection_rate=rr, score=score)
+            model = model_cls(input_dim=input_dim, rejection_rate=rr, 
+                              EVT_rejection_rate=EVT_rejection_rate, score=score)
             model.train(data, seed)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)
