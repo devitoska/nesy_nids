@@ -8,7 +8,7 @@ approximation with few or non-normal seed results. Count intervals are unbounded
 For one seed, uncertainty is undefined and is written as empty CSV cells.
 
 Also writes recall_precision_f1_unknown.png (unknown recall/precision/F1),
-bin_multi_f1.png (weighted binary/multiclass F1), and
+bin_multi_f1.png (weighted binary/multiclass F1), auroc_auprc.png (AUROC/AUPRC), and
 unknown_mis.png (unknown misclassification counts). Figure cells show
 mean and ± sample SD. Metric plots use a superscript ? for SD > 0.1 in
 original units (10 percentage points). Count means are rounded to integers
@@ -17,9 +17,9 @@ metrics and column minima for counts, including ties before display rounding.
 If an efc/ subfolder exists, include its fixed baseline in every comparison
 and write metrics_efc.csv and unknown_mis_efc.csv with values only (no SD/CI).
 Use --no-plots for CSV only.
-Comparison labels use the saved config's explanation settings: Type <number>,
-with optional u (unobserved) and m (misclassified) suffixes, in that order.
-Append <score>@<rejection_rate>, defaulting to mse@0.01 as in training.
+Comparison labels use separate lines for explanation type, AD method, and seed
+count. AE labels additionally show loss and score@rejection_rate, followed by
+@EVT_<EVT_rejection_rate> only when configured. Defaults match training.
 """
 
 import argparse
@@ -53,6 +53,8 @@ PLOT_METRICS = (
     ("f1_pos", "Unknown-class F1 (%)"),
     ("avg_f1_bin", "Weighted binary F1 (%)"),
     ("avg_f1_multi", "Weighted multiclass F1 (%)"),
+    ("auroc", "AUROC (%)"),
+    ("aupr", "AUPRC (%)"),
 )
 
 
@@ -276,15 +278,18 @@ def build_comparison(groups, reports):
             stds.loc["Average"] = average_stats[1]
         anomaly_detection = group["config"].get("anomaly_detection", {})
         explanations = anomaly_detection.get("explanations", {})
-        label = "EFC" if baseline else f"Type {explanations.get('type', 1)}"
+        label = "EFC"
         if not baseline:
-            if explanations.get("unobserved", False):
-                label += " u"
-            if explanations.get("misclassified", False):
-                label += " m"
-            score = anomaly_detection.get("score", "mse")
-            rejection_rate = anomaly_detection.get("rejection_rate", 0.01)
-            label += f" {score}@{rejection_rate}"
+            method = anomaly_detection.get("method", "AE")
+            label = f"expl. type = {explanations.get('type', 1)}\nAD = {method}"
+            if method.upper() == "AE":
+                loss = anomaly_detection.get("loss", "l2")
+                score = anomaly_detection.get("score", "mse")
+                rejection_rate = anomaly_detection.get("rejection_rate", 0.01)
+                label += f" with {loss} loss\nscore = {score}@{rejection_rate}"
+                evt_rejection_rate = anomaly_detection.get("EVT_rejection_rate")
+                if evt_rejection_rate is not None:
+                    label += f"@EVT_{evt_rejection_rate}"
         comparison.append({
             "name": name, "label": label, "n": len(group["runs"]),
             "baseline": baseline,
@@ -304,7 +309,7 @@ def draw_heatmap(ax, means, stds, row_labels, column_labels, *, percentages, sho
     vmax = 1 if percentages else max(float(means.max()), 1)
     heatmap = ax.imshow(means, cmap="Blues", vmin=0, vmax=vmax, aspect="auto")
     ax.set_xticks(range(len(column_labels)), column_labels,
-                  rotation=0 if percentages else 32,
+                  rotation=60 if percentages else 32,
                   ha="center" if percentages else "right", fontsize=11)
     ax.set_yticks(range(len(row_labels)), row_labels, fontsize=11)
     ax.tick_params(axis="both", length=0, pad=9)
@@ -355,19 +360,22 @@ def comparison_figures(comparison):
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
 
-    labels = [item["label"] if item["baseline"] else f"{item['label']}\n(n={item['n']})"
+    labels = [item["label"] if item["baseline"] else f"{item['label']}"
               for item in comparison]
     show_std = np.array([not item["baseline"] for item in comparison])
     baseline_note = " EFC: single evaluation, no SD/CI." if not show_std.all() else ""
     rows = comparison[0]["means"].index.tolist()
+    # Reserve space for the longer, multiline configuration labels.
+    label_width = max(len(line) for label in labels for line in label.splitlines()) * 0.09
     figures = []
     for filename, panels in (("recall_precision_f1_unknown.png", PLOT_METRICS[:3]),
-                             ("bin_multi_f1.png", PLOT_METRICS[3:])):
-        width = len(panels) * max(7, len(comparison) * 1.4 + 1.8)
+                             ("bin_multi_f1.png", PLOT_METRICS[3:5]),
+                             ("auroc_auprc.png", PLOT_METRICS[5:])):
+        width = len(panels) * max(7, len(comparison) * max(1.4, label_width) + 1.8)
         figure = Figure(figsize=(width, max(8, len(rows) * 0.66 + 2)), dpi=160)
         FigureCanvasAgg(figure)
         axes = figure.subplots(1, len(panels), squeeze=False)[0]
-        figure.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.17, wspace=0.36)
+        figure.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.24, wspace=0.36)
         title = "Explanation representations" + (" and EFC" if not show_std.all() else "")
         figure.suptitle(f"{title}: {len(rows) - 1} held-out attacks",
                        fontsize=21, fontweight="bold", y=0.98)
@@ -376,18 +384,21 @@ def comparison_figures(comparison):
             stds = np.column_stack([item["stds"][metric] for item in comparison])
             draw_heatmap(ax, means, stds, rows, labels, percentages=True, show_std=show_std)
             ax.set_title(title, fontsize=16, fontweight="bold", pad=20)
+        '''
         figure.text(0.5, 0.04,
                     "Cells: mean (%) and ± SD (percentage points). Superscript ?: SD > 10 percentage points."
                     + baseline_note + "\n"
                     "Average: equal-weight mean across held-out attacks within each seed. Yellow bold: row maximum, including ties, before rounding.",
                     ha="center", fontsize=10, color="#555555", linespacing=1.6)
+        '''
         figures.append((filename, figure))
 
     columns = comparison[0]["counts"].columns.tolist()
     figure = Figure(figsize=(max(18, len(columns) * 1.6), max(5, len(comparison) * 0.9 + 2.8)), dpi=160)
     FigureCanvasAgg(figure)
     ax = figure.subplots()
-    figure.subplots_adjust(left=0.08, right=0.99, top=0.83, bottom=0.34)
+    figure.subplots_adjust(left=max(0.08, label_width / figure.get_figwidth()),
+                           right=0.99, top=0.83, bottom=0.34)
     figure.suptitle("Unknown attacks misclassified as known classes", fontsize=21,
                    fontweight="bold", y=0.98)
     means = np.stack([item["counts"].loc["mean"].to_numpy() for item in comparison])
@@ -429,7 +440,7 @@ def main(argv=None):
         if comparison is not None:
             for filename, figure in comparison_figures(comparison):
                 path = args.results_folder / filename
-                figure.savefig(path, facecolor="white")
+                figure.savefig(path, facecolor="white", bbox_inches="tight")
                 figure.clear()
                 print(f"Figure -> {path}")
     except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
