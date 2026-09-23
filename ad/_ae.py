@@ -68,7 +68,7 @@ class AE:
         if self.loss == "l2":
             loss_fn = torch.nn.MSELoss()
         elif self.loss == "huber":
-            loss_fn = torch.nn.HuberLoss(delta=0.5)
+            loss_fn = torch.nn.HuberLoss(delta=1.0)
         else:
             raise ValueError("Invalid loss function")
 
