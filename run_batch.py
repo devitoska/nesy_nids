@@ -93,8 +93,8 @@ class ProcessRunner:
         # Hash ordering must be configured before Python starts, independently
         # of the experiment seed used for model randomness.
         env = os.environ.copy()
-        env["PYTHONHASHSEED"] = "0" # should be set seed for ensure different BNs
-        command = [sys.executable, "-c", SEEDED_RUNNER, str(seed), script, *arguments]
+        env["PYTHONHASHSEED"] = seed # should be set seed for ensure different BNs, "0" for same BNs
+        command = [sys.executable, "-c", SEEDED_RUNNER, str(seed), script, *arguments] 
         process = None
         try:
             with self._lock:
