@@ -27,16 +27,16 @@ if __name__ == "__main__":
         y_gt_bin = (y_gt_mul == unknown_cls).astype(int)
         
         # get predictions
-        y_pred_mul = model.predict(X, unknown_class=True)
+        y_pred_mul, energies = model.predict(X, unknown_class=True, return_energies=True)
 
         # replace "unknown" with the unknown class label for multiclass evaluation
         y_pred_mul = np.where(y_pred_mul == "unknown", unknown_cls, y_pred_mul)
         y_pred_bin = (y_pred_mul == unknown_cls).astype(int)
         
-        pr, rc, _ = precision_recall_curve(y_gt_bin, y_pred_bin)
+        pr, rc, _ = precision_recall_curve(y_gt_bin, energies)
         # save results
         metrics = {
-            "roc_auc_score": roc_auc_score(y_gt_bin, y_pred_bin),
+            "roc_auc_score": roc_auc_score(y_gt_bin, energies),
             "auc_score": auc(rc, pr),
             "fpr" : 1 - recall_score(y_gt_bin, y_pred_bin, pos_label=0),
             "classification_report_binary": classification_report(y_gt_bin, y_pred_bin, output_dict=True),

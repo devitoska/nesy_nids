@@ -1,6 +1,7 @@
 name: nesy_nids
 channels:
   - conda-forge
+  - defaults
 dependencies:
   - python=3.12
   - pgmpy==1.0.0
@@ -12,12 +13,16 @@ dependencies:
   - tqdm==4.67.1
   - opt-einsum==3.4.0
   - pyro-ppl==1.9.1
-  - scikit-learn==1.7.2
+  - scikit-learn #==1.9.1
   - PyYAML==6.0.3
-  - Cerberus==1.3.7
-  - scipy < 1.16.0
-  - xgboost==3.1.2
+  - Cerberus #==1.3.7
+  - xgboost #==3.1.2
   - rich==14.2.0
   - hyppo
   - matplotlib
   - pyextremes==2.5.0
+  - scipy #==1.18.1
+  - pip
+  - pip:
+    - optbinning<1.0.0
+    - ortools<9.8

@@ -1,4 +1,3 @@
-import numpy as np
 from efc import EnergyBasedFlowClassifier
 import pickle
 import os
