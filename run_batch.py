@@ -94,6 +94,7 @@ class ProcessRunner:
         # of the experiment seed used for model randomness.
         env = os.environ.copy()
         env["PYTHONHASHSEED"] = seed # should be set seed for ensure different BNs, "0" for same BNs
+        env["TQDM_DISABLE"] = "1" # disable tqdm progress bars in subprocesses to avoid cluttering output
         command = [sys.executable, "-c", SEEDED_RUNNER, str(seed), script, *arguments] 
         process = None
         try:
