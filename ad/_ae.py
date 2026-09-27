@@ -125,11 +125,15 @@ class AE:
         with torch.no_grad():
             X_cls = val_data
             X_recon = self.model(X_cls)
-            residuals = torch.abs(X_cls - X_recon)
+            residuals = torch.abs(X_cls - X_recon).double()
             self.residual_mean = residuals.mean(dim=0)
             centered = residuals - self.residual_mean
             assert len(residuals) >= 2, "At least two validation samples are required to compute residual covariance."
             self.residual_cov = centered.T @ centered / (len(residuals) - 1)
+            # Remove tiny numerical asymmetry.
+            self.residual_cov = 0.5 * (
+                self.residual_cov + self.residual_cov.T
+            )
             anomaly_scores = calc_anomaly_score(X_cls, X_recon, score=self.score, 
                                                 residual_mean=self.residual_mean, residual_cov=self.residual_cov)
 
