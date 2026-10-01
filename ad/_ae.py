@@ -57,6 +57,7 @@ class AE:
         self.residual_cov = None
         self.input_dim = input_dim
         self.latent_dim = 4
+        self.num_exceedances = None # Number of exceedances above the threshold in the calibration set (for EVT diagnostics)
 
     def train(self, data, seed):
 
@@ -149,7 +150,8 @@ class AE:
             anomaly_scores = calc_anomaly_score(X_cls, X_recon, score=self.score, 
                                                 residual_mean=self.residual_mean, residual_cov=self.residual_cov)
 
-            self.threshold = finalize_threshold(anomaly_scores, self.rejection_rate, self.EVT_rejection_rate)
+            self.threshold, num_exceedances = finalize_threshold(anomaly_scores, self.rejection_rate, self.EVT_rejection_rate)
+            self.num_exceedances = num_exceedances
 
     def load(self, exp_name, unknown_cls, cls):
         self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim).to(self.device)
@@ -162,6 +164,7 @@ class AE:
         self.threshold = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/threshold_{cls}.pkl", "rb"))
         self.residual_mean = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/residual_mean_{cls}.pkl", "rb"))
         self.residual_cov = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/residual_cov_{cls}.pkl", "rb"))
+        self.num_exceedances = pickle.load(open(f"results/{exp_name}/ad/no_{unknown_cls}/num_exceedances_{cls}.pkl", "rb"))
 
     def save(self, exp_name, unknown_cls, class_name):
         torch.save(self.model.state_dict(), f"results/{exp_name}/ad/no_{unknown_cls}/ae_{class_name}.pth")
@@ -171,6 +174,8 @@ class AE:
             pickle.dump(self.residual_mean, f)
         with open(f"results/{exp_name}/ad/no_{unknown_cls}/residual_cov_{class_name}.pkl", "wb") as f:
             pickle.dump(self.residual_cov, f)
+        with open(f"results/{exp_name}/ad/no_{unknown_cls}/num_exceedances_{class_name}.pkl", "wb") as f:
+            pickle.dump(self.num_exceedances, f)
 
     @staticmethod
     def test(models, data, gts, preds, unknown_cls):

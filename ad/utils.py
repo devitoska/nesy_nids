@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyextremes as pye
 import torch
+from scipy.stats import genpareto
 
 def plot_losses(train_losses, val_losses, 
                 train_recon_losses, val_recon_losses, 
@@ -183,6 +184,7 @@ def finalize_threshold(
     there is no automatic fallback to empirical thresholding.
     """
     try:
+        num_exceedances = None
         scores = np.asarray(anomaly_scores)
         if np.iscomplexobj(scores):
             raise ValueError("Complex scores are not supported.")
@@ -205,7 +207,7 @@ def finalize_threshold(
     if not np.isfinite(threshold):
         raise ValueError("The empirical threshold is not finite.")
     if EVT_rejection_rate is None:
-        return threshold
+        return threshold, num_exceedances
 
     if (isinstance(min_exceedances, (bool, np.bool_))
             or not isinstance(min_exceedances, (int, np.integer))
@@ -227,16 +229,15 @@ def finalize_threshold(
             "a lower initial threshold, or use an empirical percentile instead."
         )
     if EVT_rejection_rate == tail_fraction:
-        return threshold
+        return threshold, num_exceedances
     if exceedances.size < min_exceedances:
+        num_exceedances = exceedances.size
         raise ValueError(
             f"EVT requires at least {min_exceedances} exceedances; "
             f"only {exceedances.size} are available."
         )
     if np.all(exceedances == exceedances[0]):
         raise ValueError("EVT cannot be fitted to identical excesses.")
-
-    from scipy.stats import genpareto
 
     try:
         shape, location, scale = genpareto.fit(exceedances, floc=0)
@@ -259,4 +260,5 @@ def finalize_threshold(
         final_threshold = threshold + excess_cutoff
     if not np.isfinite(final_threshold) or final_threshold <= threshold:
         raise ValueError("The fitted GPD did not produce a finite cutoff above the initial threshold.")
-    return float(final_threshold)
+    
+    return float(final_threshold), num_exceedances
