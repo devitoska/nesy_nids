@@ -23,7 +23,7 @@ def get_allowed_ad_methods():
     return ["IF", "AE", "VAE"]
 
 def get_allowed_rejection_rates():
-    return [0.001, 0.01, 0.02, 0.05, "auto"]
+    return [0.001, 0.01, 0.02, 0.05, 0.1, 0.2, "auto"]
 
 validation_schema = {
   "name": {
