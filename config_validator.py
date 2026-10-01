@@ -166,6 +166,12 @@ validation_schema = {
                     "min": 0.001,
                     "max": 1.0
         },
+        "calibration_split": {
+            "type": "string",
+            "required": False,
+            "allowed": ["same", "separate"],
+            "default": "same"
+        },
         "score" : {
             "type": "string",
             "required": False,

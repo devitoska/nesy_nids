@@ -38,11 +38,13 @@ class AENet(torch.nn.Module):
 class AE:
 
     def __init__(self, input_dim = None, rejection_rate = 0.01, 
-                 EVT_rejection_rate = None, loss = "l2", score = "mse", device = "auto"):
+                 EVT_rejection_rate = None, calibration_split = "same", 
+                 loss = "l2", score = "mse", device = "auto"):
         self.model = None
         self.loss = loss
         self.rejection_rate = rejection_rate
         self.EVT_rejection_rate = EVT_rejection_rate
+        self.calibration_split = calibration_split
         self.score = score
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
@@ -57,10 +59,18 @@ class AE:
         self.latent_dim = 4
 
     def train(self, data, seed):
-        #data = torch.tensor(data, dtype=torch.float32)
-        train_data, val_data = train_test_split(data, test_size=0.2, random_state=seed)
-        train_data = torch.tensor(train_data, dtype=torch.float32, device=self.device)
-        val_data = torch.tensor(val_data, dtype=torch.float32, device=self.device)
+
+        if self.calibration_split == "same":
+            train_data, val_data = train_test_split(data, test_size=0.2, random_state=seed)
+            train_data = torch.tensor(train_data, dtype=torch.float32, device=self.device)
+            val_data = torch.tensor(val_data, dtype=torch.float32, device=self.device)
+            calib_data = val_data.clone()
+        else:
+            train_data, val_data = train_test_split(data, test_size=0.3, random_state=seed)
+            calib_data, val_data = train_test_split(val_data, test_size=1/3, random_state=seed)
+            train_data = torch.tensor(train_data, dtype=torch.float32, device=self.device)
+            val_data = torch.tensor(val_data, dtype=torch.float32, device=self.device)
+            calib_data = torch.tensor(calib_data, dtype=torch.float32, device=self.device)
 
         # Training loop
         self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim).to(self.device)
@@ -81,6 +91,7 @@ class AE:
         best_val_loss = float("inf")
         patience = 10
         counter = 0
+        eps = 1e-5
         best_state = None
 
         for _ in range(self.epochs):
@@ -102,7 +113,7 @@ class AE:
                     x_val_recon = self.model(x_val)
                     val_loss = loss_fn(x_val_recon, x_val).item()
                     # early stopping
-                    if val_loss + 1e-5 < best_val_loss:
+                    if val_loss + eps < best_val_loss:
                         best_val_loss = val_loss
                         counter = 0
                         best_state = {
@@ -123,7 +134,8 @@ class AE:
         self.model.eval()
         
         with torch.no_grad():
-            X_cls = val_data
+            X_cls = calib_data
+            X_cls = X_cls.to(self.device)
             X_recon = self.model(X_cls)
             residuals = torch.abs(X_cls - X_recon).double()
             self.residual_mean = residuals.mean(dim=0)

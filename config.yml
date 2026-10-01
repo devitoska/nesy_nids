@@ -13,6 +13,7 @@ anomaly_detection:
   loss: l2
   rejection_rate: 0.05
   EVT_rejection_rate: 0.01
+  calibration_split: same
   score: mse
   explanations:
     type: 1

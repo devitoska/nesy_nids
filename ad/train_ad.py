@@ -33,6 +33,7 @@ def train_ad(exp_name, config, seed):
     loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)
     EVT_rejection_rate = config.get("EVT_rejection_rate", None)
+    calibration_split = config.get("calibration_split", "same")
     score = config.get("score", "mse")
     type = config["explanations"].get("type", 1)
     use_scaler = config["explanations"].get("use_scaler", False)
@@ -93,6 +94,7 @@ def train_ad(exp_name, config, seed):
 
             t0 = time.time()
             model = model_cls(input_dim=input_dim, rejection_rate=rr, 
+                              calibration_split=calibration_split,
                               EVT_rejection_rate=EVT_rejection_rate, loss = loss, score=score)
             model.train(data, seed)
             t1 = time.time()
