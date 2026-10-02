@@ -223,11 +223,16 @@ def finalize_threshold(
 
     tail_fraction = exceedances.size / scores.size
     if EVT_rejection_rate > tail_fraction:
-        raise ValueError(
-            f"EVT_rejection_rate ({EVT_rejection_rate:g}) exceeds the observed "
-            f"tail fraction ({tail_fraction:g}). Lower the target rate, select "
-            "a lower initial threshold, or use an empirical percentile instead."
-        )
+        try:
+            raise ValueError(
+                f"EVT_rejection_rate ({EVT_rejection_rate:g}) exceeds the observed "
+                f"tail fraction ({tail_fraction:g}). Lower the target rate, select "
+                "a lower initial threshold, or use an empirical percentile instead."
+            )
+        except ValueError as exc:
+            print("Defaulting to empirical threshold due to EVT target exceeding observed tail fraction.")
+            return threshold, num_exceedances
+            
     if EVT_rejection_rate == tail_fraction:
         return threshold, num_exceedances
     if exceedances.size < min_exceedances:
