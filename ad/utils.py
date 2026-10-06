@@ -198,12 +198,18 @@ def finalize_threshold(
                        ("EVT_rejection_rate", EVT_rejection_rate)):
         if name == "EVT_rejection_rate" and rate is None:
             continue
+        if name == "rejection_rate" and isinstance(rate, str) and rate == "auto":
+            continue
         if (isinstance(rate, (bool, np.bool_))
                 or not isinstance(rate, (int, float, np.integer, np.floating))
                 or not np.isfinite(rate) or not 0 < rate < 1):
             raise ValueError(f"{name} must be a finite number strictly between 0 and 1.")
 
-    threshold = float(np.percentile(scores, 100 * (1 - rejection_rate)))
+    if isinstance(rejection_rate, str) and rejection_rate == "auto":
+        q1, q3 = np.percentile(scores, [25, 75])
+        threshold = float(q3 + 1.5 * (q3 - q1))
+    else:
+        threshold = float(np.percentile(scores, 100 * (1 - rejection_rate)))
     if not np.isfinite(threshold):
         raise ValueError("The empirical threshold is not finite.")
     if EVT_rejection_rate is None:

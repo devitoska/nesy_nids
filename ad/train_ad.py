@@ -76,24 +76,14 @@ def train_ad(exp_name, config, seed):
         for cls in range(len(class_names)):
             good_by_class = X_train[(gts == cls) & (preds == cls)]
             pred_by_class = X_train[(preds == cls)]
-            mis_by_class = X_train[(gts != cls) & (preds == cls)]
-
-            rr = 0.001 # redefining rejection rate for each class
 
             if misclassified:
                 data = pred_by_class
-                if rejection_rate == "auto": # setting auto rejection rate
-                    if len(pred_by_class) > 0:
-                        rr = max(rr, len(mis_by_class) / len(pred_by_class))
-                else: # setting user-defined rejection rate
-                    rr = rejection_rate
             else:
                 data = good_by_class
-                if rejection_rate != "auto": # setting user-defined rejection rate
-                    rr = rejection_rate
 
             t0 = time.time()
-            model = model_cls(input_dim=input_dim, rejection_rate=rr, 
+            model = model_cls(input_dim=input_dim, rejection_rate=rejection_rate, 
                               calibration_split=calibration_split,
                               EVT_rejection_rate=EVT_rejection_rate, loss = loss, score=score)
             model.train(data, seed)
