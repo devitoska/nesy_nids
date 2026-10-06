@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import pyextremes as pye
+from statsmodels.stats.stattools import medcouple
 import torch
 from scipy.stats import genpareto
 
@@ -207,7 +207,9 @@ def finalize_threshold(
 
     if isinstance(rejection_rate, str) and rejection_rate == "auto":
         q1, q3 = np.percentile(scores, [25, 75])
-        threshold = float(q3 + 1.5 * (q3 - q1))
+        mc = float(medcouple(scores)) if np.any(scores != scores[0]) else 0.0
+        skew_adjustment = np.exp((3.0 if mc >= 0 else 4.0) * mc)
+        threshold = float(q3 + 1.5 * skew_adjustment * (q3 - q1))
     else:
         threshold = float(np.percentile(scores, 100 * (1 - rejection_rate)))
     if not np.isfinite(threshold):
