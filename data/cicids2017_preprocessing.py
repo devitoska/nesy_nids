@@ -54,6 +54,16 @@ def preprocess(data, output_dir="data/dataset/CIC-IDS-2017", mode = "base"):
         test = raw_test.copy()
         known_train = pd.concat([train1.copy(), train2.copy()], ignore_index=True)
         partitions = [train1, train2, test]
+
+        # save raw partitions to CSV files in the experiment directory
+        experiment_dir = os.path.join(output_dir, f"no_{unknown_cls}")
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        for i, name in enumerate(("train_1", "train_2", "test")):
+            partitions[i].to_csv(
+                os.path.join(experiment_dir, f"{name}_raw_data.csv"), index=False,
+            )
+
         drop_columns = []
 
         for col in known_train.columns:
@@ -111,9 +121,6 @@ def preprocess(data, output_dir="data/dataset/CIC-IDS-2017", mode = "base"):
 
                     if pd.concat([train1[col], train2[col]]).nunique() <= 1:
                         drop_columns.append(col)
-
-        experiment_dir = os.path.join(output_dir, f"no_{unknown_cls}")
-        os.makedirs(experiment_dir, exist_ok=True)
         
         for i, name in enumerate(("train_1", "train_2", "test")):
             partitions[i] = partitions[i].drop(columns=drop_columns)
