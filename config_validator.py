@@ -180,7 +180,7 @@ validation_schema = {
         },
         "explanations":{
             "type": "dict",
-            "required": True,
+            "required": False,
             "schema": {
               "type": {
                   "type": "integer",

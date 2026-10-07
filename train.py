@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
             # Create explanation vectors for Train 2 partition
             with time_phase(timing_path, timings, "explanations"):
-                create_expl(exp_name, config["anomaly_detection"]["explanations"], args.data_path)
+                create_expl(exp_name, config["anomaly_detection"].get("explanations", {}), args.data_path)
 
         if not args.no_ad:
             # Train anomaly detection model

@@ -28,7 +28,7 @@ if __name__ == "__main__":
     
         # Create explanation vectors for Test partition
         if not args.no_expl:
-            create_expl(exp_name, config["anomaly_detection"]["explanations"], args.data_path, mode="test")
+            create_expl(exp_name, config["anomaly_detection"].get("explanations", {}), args.data_path, mode="test")
 
         if not args.no_ad:
             # Test anomaly detection model
