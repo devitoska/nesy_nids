@@ -1,21 +1,24 @@
-bayesian_network:
-  parameter_learning:
-    method: bayesian
-    params:
-      prior_type: BDeu
-  structure_learning:
-    method: hill_climbing
-    params:
-      max_indegree: 5
-      scoring_method: bic
-anomaly_detection:
-  method: AE
-  loss: l2
-  rejection_rate: 0.05
-  EVT_rejection_rate: 0.01
-  calibration_split: same
-  score: mse
-  explanations:
-    type: 1
-    unobserved: true
-    misclassified: true
+dataset_path: data/dataset/ton-iot_net
+algorithm:
+  type: NeSy-NIDS
+  bayesian_network:
+    parameter_learning:
+      method: bayesian
+      params:
+        prior_type: BDeu
+    structure_learning:
+      method: hill_climbing
+      params:
+        max_indegree: 5
+        scoring_method: bic
+  anomaly_detection:
+    method: AE
+    loss: l2
+    rejection_rate: 0.05
+    EVT_rejection_rate: 0.01
+    calibration_split: same
+    score: mse
+    explanations:
+      type: 1
+      unobserved: true
+      misclassified: true

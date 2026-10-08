@@ -39,7 +39,7 @@ if __name__ == "__main__":
         # Parse config arguments
         parser = argparse.ArgumentParser(description="Train Neurosymbolic Intrusion Detection System")
         parser.add_argument('--config', type=str, required=False, help='Path to the config file', default="config.yml")
-        parser.add_argument('--data_path', type=str, required=False, help='Path to the dataset', default="data/dataset/ton-iot_net")
+        parser.add_argument('--data_path', type=str, help='Override dataset_path from the config')
         parser.add_argument('--name', type=str, required=False, help='Name of the experiment', default=None)
         parser.add_argument('--exp_path', type=str, required=False, help='Path to the experiment')
         parser.add_argument('--seed', type=int, required=False, help='Random seed for reproducibility', default=42)
@@ -65,6 +65,13 @@ if __name__ == "__main__":
         with open(args.config, 'r') as f:
             config = yaml.safe_load(f)
 
+        if isinstance(config, dict):
+            config.setdefault("seed", args.seed)
+        if args.data_path is not None:
+            config["dataset_path"] = args.data_path
+        config = validate_config(config)
+        if config["algorithm"]["type"] != "NeSy-NIDS":
+            raise ValueError("train.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN")
         seed = config.get("seed", args.seed)
         config_name = os.path.splitext(os.path.basename(args.config))[0]
         timing_path = os.path.join("results", f"train_times_{config_name}_{seed}.json")
@@ -87,9 +94,6 @@ if __name__ == "__main__":
         with open(os.path.join(f"results/{exp_name}", "config.yaml"), 'w') as f:
             yaml.dump(config, f)
         
-        # Validate config
-        validate_config(config)
-
         # Defining seeds for reproducibility
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -98,16 +102,16 @@ if __name__ == "__main__":
         if not args.exp_path:
             # Train Bayesian Network
             with time_phase(timing_path, timings, "bn"):
-                train_bn(exp_name, config.get("bayesian_network"), args.data_path)
+                train_bn(exp_name, config["algorithm"].get("bayesian_network"), config.get("dataset_path", "data/dataset/ton-iot_net"))
 
             # Create explanation vectors for Train 2 partition
             with time_phase(timing_path, timings, "explanations"):
-                create_expl(exp_name, config["anomaly_detection"].get("explanations", {}), args.data_path)
+                create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", {}), config.get("dataset_path", "data/dataset/ton-iot_net"))
 
         if not args.no_ad:
             # Train anomaly detection model
             with time_phase(timing_path, timings, "ad"):
-                train_ad(exp_name, config.get("anomaly_detection"), seed)
+                train_ad(exp_name, config["algorithm"].get("anomaly_detection"), seed)
 
         timings["status"] = "completed"
         save_timings(timing_path, timings)

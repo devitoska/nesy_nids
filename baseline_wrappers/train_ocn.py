@@ -1,15 +1,18 @@
-"""Train the authors' OCN on each TON-IoT held-out-attack partition.
+"""Train OCN with the paper's KDD-style 1D backbone on raw TON-IoT features.
 
 Run from any directory:
     python baseline_wrappers/train_ocn.py
 
-Inputs: no_<attack>/train_1_raw.csv and train_2_raw.csv, with a class column.
+Inputs: no_<attack>/train_1_raw_data.csv and train_2_raw_data.csv, with class labels.
 Outputs: results/ocn/ocn/ocn_no_<attack>.pt. Use --help for shorter trial runs.
 
 This wrapper invokes train_pre and train_sharedcnn unchanged. It supplies the
 missing pretraining stage and isolates their centroid file per experiment.
 The final epoch is saved, without the authors' test-driven model selection.
 Thresholds remain the original last-batch thresholds; no recalibration is done.
+The 1D model uses no zero-padding and includes partial final pooling windows.
+Defaults follow the KDD batch size (256) and Fisher inter-class coefficient
+(0.002). Existing 2D checkpoints require retraining.
 """
 
 import argparse
@@ -47,13 +50,17 @@ def train_partition(ocn, unknown_class, args):
     start = time.perf_counter()
     preprocessing = utils.fit_preprocessing(frame)
     features = utils.transform_features(frame, preprocessing)
+    # The authors' noise generator accesses size(3). This view adds an axis,
+    # not values; SharedCNN1D removes it before the first convolution.
+    training_features = features[:, :, None, :]
     labels = frame["class"].map({name: i for i, name in enumerate(classes)}).to_numpy(dtype="int64")
     ocn.device = utils.resolve_device(args.device)
     ocn.BATCH_SIZE = args.batch_size
-    model = ocn.models.SharedCNN(len(classes)).to(ocn.device)
+    architecture = utils.model_config(features.shape[-1])
+    model = utils.build_model(architecture, len(classes)).to(ocn.device)
 
     for epoch in range(1, args.pretrain_epochs + 1):
-        ocn.train_pre(epoch, model, features, labels)
+        ocn.train_pre(epoch, model, training_features, labels)
         utils.check_finite(model)
 
     # train_sharedcnn reads/writes this filename directly; keep it out of both
@@ -63,19 +70,21 @@ def train_partition(ocn, unknown_class, args):
             torch.save(torch.zeros(len(classes), len(classes)), "CICIDS_centroids.pt")
             for epoch in range(1, args.epochs + 1):
                 ocn.lamda = torch.tensor(0.05 * math.exp(-5 * epoch / args.epochs))
-                ocn.alpha = torch.tensor(0.0001 * math.exp(-5 * epoch / args.epochs))
+                # Paper alpha = code lamda; paper lambda = code alpha.
+                ocn.alpha = torch.tensor(0.002)
                 ocn.beta = torch.tensor(0.01)
                 thresholds = ocn.train_sharedcnn(
                     epoch, model, rank_rate=args.rank_rate,
                     max_threshold=torch.zeros(len(classes)),
-                    data=features, label=labels, N_class=len(classes),
+                    data=training_features, label=labels, N_class=len(classes),
                 ).detach().cpu()
                 centroids = torch.load("CICIDS_centroids.pt", map_location="cpu", weights_only=True)
                 utils.check_finite(model, centroids, thresholds)
 
     elapsed = round(time.perf_counter() - start, 2)
     checkpoint = {
-        "format_version": 1,
+        "format_version": utils.CHECKPOINT_VERSION,
+        "architecture": architecture,
         "unknown_class": unknown_class,
         "classes": classes,
         "preprocessing": preprocessing,
@@ -86,6 +95,7 @@ def train_partition(ocn, unknown_class, args):
             "epochs": args.epochs, "pretrain_epochs": args.pretrain_epochs,
             "batch_size": args.batch_size, "rank_rate": args.rank_rate,
             "seed": args.seed, "seconds": elapsed,
+            "fisher_inter_class_coefficient": 0.002,
         },
     }
     output = args.results_dir / "ocn" / f"ocn_no_{unknown_class}.pt"
@@ -99,10 +109,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", type=Path, default=utils.DEFAULT_DATA_DIR)
     parser.add_argument("--results-dir", type=Path, default=utils.DEFAULT_RESULTS_DIR)
-    parser.add_argument("--classes", nargs="+", choices=utils.CLASSES, default=list(utils.CLASSES))
+    parser.add_argument("--classes", nargs="+", help="Optional subset of discovered classes; default: all")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--pretrain-epochs", type=int, default=50)
-    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--rank-rate", type=float, default=0.99)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="auto", help="auto, cpu, or a PyTorch device such as cuda:0")
@@ -113,15 +123,20 @@ def main():
         parser.error("rank-rate must be in [0, 1)")
     args.data_dir = args.data_dir.resolve()
     args.results_dir = args.results_dir.resolve()
-    ocn = utils.load_ocn()
-    print("Training OCNs...")
-    times = {}
-    for unknown_class in args.classes:
-        print(f"\nHeld-out attack: {unknown_class}")
-        times[unknown_class] = train_partition(ocn, unknown_class, args)
-    print("Time taken for each class:")
-    for name, elapsed in times.items():
-        print(f"{name} {elapsed} s")
+    try:
+        args.classes = utils.discover_classes(args.data_dir, args.classes)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    with utils.record_stage_time(args.results_dir, "train"):
+        ocn = utils.load_ocn()
+        print("Training OCNs...")
+        times = {}
+        for unknown_class in args.classes:
+            print(f"\nHeld-out attack: {unknown_class}")
+            times[unknown_class] = train_partition(ocn, unknown_class, args)
+        print("Time taken for each class:")
+        for name, elapsed in times.items():
+            print(f"{name} {elapsed} s")
 
 
 if __name__ == "__main__":

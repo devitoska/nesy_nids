@@ -3,7 +3,12 @@
 Raw CSVs must contain a ``class`` column and the same feature columns in each
 split. Numeric features are not discretized. String features are ordinal-encoded
 using the training vocabulary (unseen values become -1). Training-only min/max
-scaling is followed by zero-padding to the original CNN's 256 inputs.
+scaling produces (N, 1, F) inputs with no added feature values.
+
+The wrapper implements the KDD 1D backbone from Section 4.2 of Zhang et al.
+(2021): 16/32 filters, convolution kernel 3/stride 1, pooling size 4/stride 2.
+The paper does not specify boundary handling. We use no convolution padding and
+ceil-mode pooling to retain the final partial windows without zero-padding.
 
 The authors' loss, centroid updates, skipped final training batch and last-batch
 thresholds are intentionally preserved. Compatibility adapters only provide the
@@ -25,14 +30,99 @@ from sklearn.metrics import classification_report
 from sklearn.preprocessing import MinMaxScaler
 import torch
 
+if __package__:
+    from .utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
+else:
+    from utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = PROJECT_ROOT / "data/dataset/ton-iot_net"
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "results/ocn"
-CLASSES = (
-    "backdoor", "ddos", "dos", "injection", "mitm", "password",
-    "ransomware", "scanning", "xss",
-)
+CHECKPOINT_VERSION = 2
+
+
+def model_config(num_features):
+    """Serializable architecture specification; version 1 checkpoints were 2D."""
+    if type(num_features) is not int or num_features < 1:
+        raise ValueError("OCN requires a positive integer feature count.")
+    return {
+        "name": "ocn_kdd_1d",
+        "num_features": num_features,
+        "channels": [16, 32],
+        "conv_kernel_size": 3,
+        "conv_stride": 1,
+        "conv_padding": 0,
+        "pool_kernel_size": 4,
+        "pool_stride": 2,
+        "pool_padding": 0,
+        "pool_ceil_mode": True,
+        "head": "batchnorm_linear_sigmoid",
+    }
+
+
+class SharedCNN1D(torch.nn.Module):
+    """Shared 1D backbone with the four-output interface used by original OCN.
+
+    BatchNorm and sigmoid preserve the released code's head behavior. The extra
+    singleton axis accepted here only accommodates its 4D noise-generation code;
+    convolution always runs on (batch, 1, features).
+    """
+
+    def __init__(self, config, num_classes):
+        super().__init__()
+        self.num_features = config["num_features"]
+        blocks = []
+        in_channels = 1
+        for out_channels in config["channels"]:
+            blocks.extend([
+                torch.nn.Conv1d(
+                    in_channels, out_channels, config["conv_kernel_size"],
+                    stride=config["conv_stride"], padding=config["conv_padding"],
+                ),
+                torch.nn.ReLU(inplace=True),
+                torch.nn.MaxPool1d(
+                    config["pool_kernel_size"], stride=config["pool_stride"],
+                    padding=config["pool_padding"], ceil_mode=config["pool_ceil_mode"],
+                ),
+            ])
+            in_channels = out_channels
+        self.features = torch.nn.Sequential(*blocks)
+        try:
+            with torch.no_grad():
+                output = self.features(torch.zeros(1, 1, self.num_features))
+        except RuntimeError as exc:
+            raise ValueError(
+                f"{self.num_features} features are too few for the unpadded 1D OCN "
+                "convolution/pooling stack (minimum 13)."
+            ) from exc
+        self.fc = torch.nn.Sequential(
+            torch.nn.Flatten(),
+            torch.nn.BatchNorm1d(output.numel()),
+            torch.nn.Linear(output.numel(), num_classes),
+        )
+        self.sigmoid = torch.nn.Sigmoid()
+
+    def _forward_one(self, inputs):
+        if inputs.ndim == 4 and inputs.shape[2] == 1:
+            inputs = inputs.squeeze(2)
+        if inputs.ndim != 3 or inputs.shape[1:] != (1, self.num_features):
+            raise ValueError(
+                f"Expected (N, 1, {self.num_features}) or "
+                f"(N, 1, 1, {self.num_features}), got {tuple(inputs.shape)}."
+            )
+        activations = self.fc(self.features(inputs))
+        return activations, self.sigmoid(activations)
+
+    def forward(self, indata, outdata):
+        in_activations, in_predictions = self._forward_one(indata)
+        out_activations, out_predictions = self._forward_one(outdata)
+        return in_activations, in_predictions, out_activations, out_predictions
+
+
+def build_model(config, num_classes):
+    if config != model_config(config.get("num_features")):
+        raise ValueError("Unsupported OCN architecture metadata; retrain with train_ocn.py.")
+    return SharedCNN1D(config, num_classes)
 
 
 def _load_module(name, path):
@@ -161,8 +251,8 @@ def _numeric_features(frame, preprocessing):
 
 def fit_preprocessing(frame):
     names = [name for name in frame.columns if name != "class"]
-    if not 1 <= len(names) <= 256:
-        raise ValueError(f"The original OCN accepts 1 to 256 features with padding; got {len(names)}.")
+    if len(names) < 13:
+        raise ValueError(f"The unpadded 1D OCN requires at least 13 features; got {len(names)}.")
     preprocessing = {"feature_names": names, "categories": {}}
     for name in names:
         if not pd.api.types.is_numeric_dtype(frame[name]):
@@ -178,11 +268,10 @@ def fit_preprocessing(frame):
 def transform_features(frame, preprocessing):
     values = _numeric_features(frame, preprocessing)
     values = values * np.asarray(preprocessing["scale"]) + np.asarray(preprocessing["offset"])
-    padded = np.zeros((len(values), 256), dtype=np.float32)
-    padded[:, :values.shape[1]] = values
-    if not np.isfinite(padded).all():
+    values = values.astype(np.float32)
+    if not np.isfinite(values).all():
         raise ValueError("Features overflowed after scaling to the CNN's float32 input.")
-    return padded.reshape(-1, 1, 16, 16)
+    return values[:, np.newaxis, :]
 
 
 @contextmanager
@@ -226,9 +315,3 @@ def predict(ocn, model, features, centroids, thresholds, batch_size, device):
             predictions.append(labels.numpy())
             scores.append(distances.numpy())
     return np.concatenate(predictions), np.concatenate(scores)
-
-
-def create_metrics_table(results_dir):
-    # Load the project helper by path so both script and `python -m` use work.
-    helper = _load_module("_ocn_project_utils", PROJECT_ROOT / "utils.py")
-    helper.create_metrics_table(str(results_dir))

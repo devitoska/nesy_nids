@@ -50,8 +50,39 @@ where `--exp_path` is a mandatory argument specifying the path to the folder con
 To train and evaluate the EFC model, run the following commands:
 
 ```bash
-python train_efc.py
-python test_efc.py
+python baseline_wrappers/train_efc.py
+python baseline_wrappers/test_efc.py
 ```
 
-Results will be saved in the `results` folder.
+EFC results are saved in `results/efc`. The OCN equivalents are
+`baseline_wrappers/train_ocn.py` and `baseline_wrappers/test_ocn.py`, with results
+in `results/ocn`. Both accept `--data-dir` and `--results-dir` and discover the
+held-out classes from `no_<class>` directories in the dataset.
+
+To run a batch, put YAML configs in `configs/` and run:
+
+```bash
+python run_batch.py --num_seed 3 --threads 2
+```
+
+Each config selects its dataset and algorithm. A baseline config needs only:
+
+```yaml
+dataset_path: data/dataset/ton-iot_net
+algorithm:
+  type: EFC  # EFC, OCN, or NeSy-NIDS
+```
+
+For NeSy-NIDS, put `bayesian_network` and `anomaly_detection` inside `algorithm`,
+as in `config.yml`. Existing configs with these settings at the top level remain
+supported. Relative dataset paths are resolved from the project directory.
+
+Batch runs invoke the corresponding train and test scripts and save each run in
+`results/<config_stem>_<seed>/`. EFC uses the discretized CSV files; OCN uses
+`train_1_raw_data.csv`, `train_2_raw_data.csv`, and `test_raw_data.csv`.
+Baseline wrappers save `timings.json` in their results directory, containing
+`train_seconds`, `test_seconds`, and a completion status. Training resets this
+file; testing preserves the training duration. After successful testing, the
+batch runner appends those durations to `results/times`, with `null` for the
+three NeSy-only phase columns. Baseline durations measure work inside the
+wrappers; the batch total also includes subprocess startup and shutdown.

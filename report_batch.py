@@ -276,10 +276,13 @@ def build_comparison(groups, reports):
             average_stats = summarize(per_seed_averages)
             means.loc["Average"] = average_stats[0]
             stds.loc["Average"] = average_stats[1]
-        anomaly_detection = group["config"].get("anomaly_detection", {})
+        algorithm = group["config"].get("algorithm", group["config"])
+        anomaly_detection = algorithm.get("anomaly_detection", {})
         explanations = anomaly_detection.get("explanations", {})
         label = "EFC"
-        if not baseline:
+        if not baseline and algorithm.get("type") in {"EFC", "OCN"}:
+            label = algorithm["type"]
+        elif not baseline:
             method = anomaly_detection.get("method", "AE")
             label = f"expl. type = {explanations.get('type', 1)}\nAD = {method}"
             if method.upper() == "AE":

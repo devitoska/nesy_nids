@@ -1,9 +1,10 @@
 """Evaluate OCN checkpoints using the EFC wrapper's metrics and output schema.
 
 Run: python baseline_wrappers/test_ocn.py
-Inputs: no_<attack>/test_raw.csv and results/ocn/ocn/ocn_no_<attack>.pt.
+Inputs: no_<attack>/test_raw_data.csv and results/ocn/ocn/ocn_no_<attack>.pt.
 Outputs: results/ocn/metrics/no_<attack>/results.json and metrics/table.csv.
 Unknown means the held-out attack, including for the binary metrics.
+Only version 2 checkpoints with the unpadded 1D backbone are supported.
 """
 
 import argparse
@@ -27,8 +28,13 @@ def evaluate_partition(ocn, unknown_class, args):
     frame = utils.read_raw(args.data_dir / f"no_{unknown_class}" / "test_raw_data.csv")
     path = args.results_dir / "ocn" / f"ocn_no_{unknown_class}.pt"
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    if checkpoint.get("format_version") != 1 or checkpoint["unknown_class"] != unknown_class:
-        raise ValueError(f"Incompatible OCN checkpoint: {path}")
+    if checkpoint.get("format_version") != utils.CHECKPOINT_VERSION:
+        raise ValueError(
+            f"Incompatible OCN checkpoint: {path}. The 1D model requires retraining "
+            "with train_ocn.py; old 2D checkpoints cannot be reused."
+        )
+    if checkpoint["unknown_class"] != unknown_class:
+        raise ValueError(f"Checkpoint held-out class does not match {unknown_class!r}: {path}")
     classes = checkpoint["classes"]
     y_gt_mul = frame["class"].to_numpy()
     unexpected = set(y_gt_mul) - set(classes) - {unknown_class}
@@ -40,7 +46,10 @@ def evaluate_partition(ocn, unknown_class, args):
 
     features = utils.transform_features(frame, checkpoint["preprocessing"])
     device = utils.resolve_device(args.device)
-    model = ocn.models.SharedCNN(len(classes)).to(device)
+    architecture = checkpoint["architecture"]
+    if architecture["num_features"] != features.shape[-1]:
+        raise ValueError("Checkpoint architecture and preprocessing feature counts disagree.")
+    model = utils.build_model(architecture, len(classes)).to(device)
     model.load_state_dict(checkpoint["model_state"])
     centroids, thresholds = checkpoint["centroids"], checkpoint["thresholds"]
     utils.check_finite(model, centroids, thresholds)
@@ -76,17 +85,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", type=Path, default=utils.DEFAULT_DATA_DIR)
     parser.add_argument("--results-dir", type=Path, default=utils.DEFAULT_RESULTS_DIR)
-    parser.add_argument("--classes", nargs="+", choices=utils.CLASSES, default=list(utils.CLASSES))
-    parser.add_argument("--batch-size", type=int, default=512)
+    parser.add_argument("--classes", nargs="+", help="Optional subset of discovered classes; default: all")
+    parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--device", default="auto", help="auto, cpu, or a PyTorch device such as cuda:0")
     args = parser.parse_args()
     if args.batch_size < 1:
         parser.error("batch-size must be >=1")
-    ocn = utils.load_ocn()
-    print("Testing OCNs...")
-    for unknown_class in args.classes:
-        evaluate_partition(ocn, unknown_class, args)
-    utils.create_metrics_table(args.results_dir)
+    try:
+        args.classes = utils.discover_classes(args.data_dir, args.classes)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    with utils.record_stage_time(args.results_dir, "test"):
+        ocn = utils.load_ocn()
+        print("Testing OCNs...")
+        for unknown_class in args.classes:
+            evaluate_partition(ocn, unknown_class, args)
+        utils.create_metrics_table(args.results_dir)
 
 
 if __name__ == "__main__":

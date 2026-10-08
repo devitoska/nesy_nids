@@ -1,8 +1,10 @@
 """Train and test every YAML config: python run_batch.py --num_seed 3 --threads 2.
 
+EFC runs once per config; other algorithms use --num_seed repetitions.
 Append tab-separated experiment, total_seconds, train_seconds, test_seconds,
 bn_seconds, explanations_seconds, ad_seconds to results/times after each
-experiment. Skipped training phases are recorded as null. At most --threads
+experiment. Baselines persist train/test totals in each run's timings.json;
+their phase columns, like skipped NeSy phases, are null. At most --threads
 subprocesses run at once, with training preceding testing for each experiment.
 Each subprocess has a --timeout deadline (default: 86400 seconds). On failure
 or interruption, active process groups are terminated and queued work cancelled.
@@ -27,12 +29,15 @@ import numpy as np
 import torch
 import yaml
 
+from config_validator import validate_config
+
 
 # Seed inside each child process as well: subprocesses do not inherit RNG state.
 SEEDED_RUNNER = """
 import random
 import runpy
 import sys
+from pathlib import Path
 import numpy as np
 import torch
 
@@ -41,6 +46,7 @@ sys.argv.pop(0)
 random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
+sys.path.insert(0, str(Path(sys.argv[0]).resolve().parent))
 runpy.run_path(sys.argv[0], run_name="__main__")
 """
 
@@ -136,31 +142,53 @@ class ProcessRunner:
 
 def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, processes):
     results_dir = times_path.parent
+    with run_config.open(encoding="utf-8") as config_file:
+        config = validate_config(yaml.safe_load(config_file))
+    algorithm = config["algorithm"]["type"]
+    baseline = algorithm in {"EFC", "OCN"}
+    experiment_dir = results_dir / name
+    if baseline:
+        experiment_dir.mkdir(parents=True, exist_ok=True)
+        with (experiment_dir / "config.yaml").open("w", encoding="utf-8") as config_file:
+            yaml.safe_dump(config, config_file)
+        data_dir = Path(config["dataset_path"])
+        if not data_dir.is_absolute():
+            data_dir = project_dir / data_dir
+        arguments = ["--data-dir", str(data_dir), "--results-dir", str(experiment_dir)]
+        train_script = f"baseline_wrappers/train_{algorithm.lower()}.py"
+        test_script = f"baseline_wrappers/test_{algorithm.lower()}.py"
+        train_arguments = arguments + (["--seed", str(seed)] if algorithm == "OCN" else [])
+        test_arguments = arguments
+        timing_path = experiment_dir / "timings.json"
+    else:
+        train_script, test_script = "train.py", "test.py"
+        train_arguments = ["--config", str(run_config), "--name", name, "--seed", str(seed)]
+        test_arguments = ["--exp_path", str(experiment_dir)]
+        timing_path = results_dir / f"train_times_{name}.json"
     print(f"Running {name}", flush=True)
     started = time.perf_counter()
-    processes.run_script(
-        project_dir, "train.py",
-        ["--config", str(run_config), "--name", name, "--seed", str(seed)],
-        seed,
-    )
+    processes.run_script(project_dir, train_script, train_arguments, seed)
     train_elapsed = time.perf_counter() - started
-    timing_path = results_dir / f"train_times_{name}.json"
     with timing_path.open(encoding="utf-8") as timing_file:
         train_timings = json.load(timing_file)
-    if train_timings["status"] != "completed":
+    if train_timings["status"] != ("trained" if baseline else "completed"):
         raise RuntimeError(f"Training did not complete for {name}")
-    phase_times = "\t".join(
+    phase_times = "null\tnull\tnull" if baseline else "\t".join(
         "null" if train_timings[key] is None else f"{train_timings[key]:.6f}"
         for key in ("bn_seconds", "explanations_seconds", "ad_seconds")
     )
     test_started = time.perf_counter()
-    processes.run_script(
-        project_dir, "test.py",
-        ["--exp_path", str(results_dir / name)], seed,
-    )
+    processes.run_script(project_dir, test_script, test_arguments, seed)
     finished = time.perf_counter()
     test_elapsed = finished - test_started
     elapsed = finished - started
+    if baseline:
+        with timing_path.open(encoding="utf-8") as timing_file:
+            timings = json.load(timing_file)
+        if timings["status"] != "completed":
+            raise RuntimeError(f"Testing did not complete for {name}")
+        train_elapsed = timings["train_seconds"]
+        test_elapsed = timings["test_seconds"]
     # Serialize appends and close after each experiment to save its row promptly.
     with times_lock:
         with times_path.open("a", encoding="utf-8") as times_file:
@@ -169,7 +197,8 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
                 f"\t{phase_times}\n"
             )
     # Retain the subprocess report until the combined row is saved.
-    timing_path.unlink()
+    if not baseline:
+        timing_path.unlink()
     print(
         f"Finished {name} in {elapsed:.6f} seconds "
         f"(train: {train_elapsed:.6f}, test: {test_elapsed:.6f})",
@@ -227,12 +256,12 @@ def run_experiments(project_dir, experiments, times_path, threads, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description="Train and test all configs in configs/.")
-    parser.add_argument("--num_seed", type=int, default=1, help="Runs per config (default: 1)")
+    parser.add_argument("--num_seed", type=int, default=1, help="Runs per config; EFC always runs once (default: 1)")
     parser.add_argument("--seed", type=int, default=42, help="Initial random seed (default: 42)")
     parser.add_argument("--threads", type=int, default=1, help="Maximum concurrent subprocesses (default: 1)")
     parser.add_argument(
         "--skip", type=int,
-        help="Skip the first N experiments (1 through num_seed * number of configs)",
+        help="Skip the first N experiments; count each EFC config once",
     )
     parser.add_argument(
         "--timeout", type=float, default=86400,
@@ -264,7 +293,18 @@ def main():
     if not configs:
         parser.error(f"No YAML configs found in {configs_dir}")
 
-    run_count = len(configs) * args.num_seed
+    planned_configs = []
+    for config_path in configs:
+        with config_path.open(encoding="utf-8") as config_file:
+            config = yaml.safe_load(config_file)
+        try:
+            config = validate_config(config)
+        except ValueError as error:
+            parser.error(f"{config_path}: {error}")
+        repetitions = 1 if config["algorithm"]["type"] == "EFC" else args.num_seed
+        planned_configs.append((config_path, config, repetitions))
+
+    run_count = sum(repetitions for _, _, repetitions in planned_configs)
     if run_count > 2**32:
         parser.error("The number of runs exceeds the available unique seeds")
     if args.skip is not None and not 1 <= args.skip <= run_count:
@@ -295,15 +335,12 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="nesy_nids_batch_") as temporary_dir:
         experiments = []
-        for config_index, config_path in enumerate(configs):
-            with config_path.open(encoding="utf-8") as config_file:
-                config = yaml.safe_load(config_file)
-            if not isinstance(config, dict):
-                parser.error(f"Config must contain a YAML mapping: {config_path}")
-
-            for repetition in range(args.num_seed):
+        run_index = 0
+        for config_path, config, repetitions in planned_configs:
+            for _ in range(repetitions):
                 seed = next(seeds)
-                if config_index * args.num_seed + repetition < skip_count:
+                run_index += 1
+                if run_index <= skip_count:
                     continue
                 name = f"{config_path.stem}_{seed}"
                 # train.py prioritizes the YAML seed over its CLI seed. Save the
