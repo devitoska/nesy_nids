@@ -18,7 +18,7 @@ algorithm:
     EVT_rejection_rate: 0.01
     calibration_split: same
     score: mse
+    misclassified: true
     explanations:
       type: 1
       unobserved: true
-      misclassified: true

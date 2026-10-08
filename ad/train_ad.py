@@ -35,10 +35,11 @@ def train_ad(exp_name, config, seed):
     EVT_rejection_rate = config.get("EVT_rejection_rate", None)
     calibration_split = config.get("calibration_split", "same")
     score = config.get("score", "mse")
+    misclassified = config.get("misclassified", False)
     type = config["explanations"].get("type", 1)
     use_scaler = config["explanations"].get("use_scaler", False)
     unobserved = config["explanations"].get("unobserved", False)
-    misclassified = config["explanations"].get("misclassified", False)
+    
 
     for bn_path in bn_paths:
 

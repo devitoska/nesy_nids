@@ -214,6 +214,11 @@ validation_schema = {
                 "allowed": ["mse", "mah"],
                 "default": "mse"
             },
+            "misclassified": {
+                "type": "boolean",
+                "required": False,
+                "default": False
+            },
             "explanations":{
                 "type": "dict",
                 "required": False,
@@ -230,11 +235,6 @@ validation_schema = {
                       "default": False
                   },
                   "unobserved": {
-                      "type": "boolean",
-                      "required": False,
-                      "default": False
-                  },
-                  "misclassified": {
                       "type": "boolean",
                       "required": False,
                       "default": False
