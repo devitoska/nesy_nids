@@ -3,8 +3,8 @@
 EFC runs once per config; other algorithms use --num_seed repetitions.
 Append tab-separated experiment, total_seconds, train_seconds, test_seconds,
 bn_seconds, explanations_seconds, ad_seconds to results/times after each
-experiment. Baselines persist train/test totals in each run's timings.json;
-their phase columns, like skipped NeSy phases, are null. At most --threads
+experiment. All algorithms retain train/test totals in each run's timings.json;
+baseline phase columns, like skipped NeSy phases, are null. At most --threads
 subprocesses run at once, with training preceding testing for each experiment.
 Each subprocess has a --timeout deadline (default: 86400 seconds). On failure
 or interruption, active process groups are terminated and queued work cancelled.
@@ -147,6 +147,7 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
     algorithm = config["algorithm"]["type"]
     baseline = algorithm in {"EFC", "OCN"}
     experiment_dir = results_dir / name
+    timing_path = experiment_dir / "timings.json"
     if baseline:
         experiment_dir.mkdir(parents=True, exist_ok=True)
         with (experiment_dir / "config.yaml").open("w", encoding="utf-8") as config_file:
@@ -159,36 +160,30 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
         test_script = f"baseline_wrappers/test_{algorithm.lower()}.py"
         train_arguments = arguments + (["--seed", str(seed)] if algorithm == "OCN" else [])
         test_arguments = arguments
-        timing_path = experiment_dir / "timings.json"
     else:
         train_script, test_script = "train.py", "test.py"
         train_arguments = ["--config", str(run_config), "--name", name, "--seed", str(seed)]
         test_arguments = ["--exp_path", str(experiment_dir)]
-        timing_path = results_dir / f"train_times_{name}.json"
     print(f"Running {name}", flush=True)
     started = time.perf_counter()
     processes.run_script(project_dir, train_script, train_arguments, seed)
-    train_elapsed = time.perf_counter() - started
     with timing_path.open(encoding="utf-8") as timing_file:
         train_timings = json.load(timing_file)
-    if train_timings["status"] != ("trained" if baseline else "completed"):
+    if train_timings["status"] != "trained":
         raise RuntimeError(f"Training did not complete for {name}")
     phase_times = "null\tnull\tnull" if baseline else "\t".join(
         "null" if train_timings[key] is None else f"{train_timings[key]:.6f}"
         for key in ("bn_seconds", "explanations_seconds", "ad_seconds")
     )
-    test_started = time.perf_counter()
     processes.run_script(project_dir, test_script, test_arguments, seed)
     finished = time.perf_counter()
-    test_elapsed = finished - test_started
     elapsed = finished - started
-    if baseline:
-        with timing_path.open(encoding="utf-8") as timing_file:
-            timings = json.load(timing_file)
-        if timings["status"] != "completed":
-            raise RuntimeError(f"Testing did not complete for {name}")
-        train_elapsed = timings["train_seconds"]
-        test_elapsed = timings["test_seconds"]
+    with timing_path.open(encoding="utf-8") as timing_file:
+        timings = json.load(timing_file)
+    if timings["status"] != "completed":
+        raise RuntimeError(f"Testing did not complete for {name}")
+    train_elapsed = timings["train_seconds"]
+    test_elapsed = timings["test_seconds"]
     # Serialize appends and close after each experiment to save its row promptly.
     with times_lock:
         with times_path.open("a", encoding="utf-8") as times_file:
@@ -196,9 +191,6 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
                 f"{name}\t{elapsed:.6f}\t{train_elapsed:.6f}\t{test_elapsed:.6f}"
                 f"\t{phase_times}\n"
             )
-    # Retain the subprocess report until the combined row is saved.
-    if not baseline:
-        timing_path.unlink()
     print(
         f"Finished {name} in {elapsed:.6f} seconds "
         f"(train: {train_elapsed:.6f}, test: {test_elapsed:.6f})",

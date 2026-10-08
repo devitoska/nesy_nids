@@ -13,7 +13,7 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parents[1] / "data/dataset/ton-iot_n
 
 @contextmanager
 def record_stage_time(results_dir, stage):
-    """Persist baseline train/test totals, including incomplete/failed runs.
+    """Persist experiment train/test totals, including incomplete/failed runs.
 
     A new training run resets both totals. Testing preserves its training total.
     Batch execution reads this JSON before appending to results/times.
@@ -35,7 +35,7 @@ def record_stage_time(results_dir, stage):
     save()
     started = time.perf_counter()
     try:
-        yield
+        yield timings
     except BaseException:
         timings["status"] = "failed"
         raise

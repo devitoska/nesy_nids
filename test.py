@@ -8,6 +8,7 @@ from bn.expl import create_expl
 from ad.test_ad import test_ad
 from utils import create_metrics_table
 from config_validator import validate_config
+from baseline_wrappers.utils_baselines import record_stage_time
 
 if __name__ == "__main__":
 
@@ -32,17 +33,18 @@ if __name__ == "__main__":
         if config["algorithm"]["type"] != "NeSy-NIDS":
             raise ValueError("test.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN")
 
-        # Create explanation vectors for Test partition
-        if not args.no_expl:
-            create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", {}),
-                        config.get("dataset_path", "data/dataset/ton-iot_net"), mode="test")
+        with record_stage_time(path_to_exp, "test"):
+            # Create explanation vectors for Test partition
+            if not args.no_expl:
+                create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", {}),
+                            config.get("dataset_path", "data/dataset/ton-iot_net"), mode="test")
 
-        if not args.no_ad:
-            # Test anomaly detection model
-            test_ad(exp_name, config["algorithm"].get("anomaly_detection"))
+            if not args.no_ad:
+                # Test anomaly detection model
+                test_ad(exp_name, config["algorithm"].get("anomaly_detection"))
 
-            # Create metrics table
-            create_metrics_table(path_to_exp)
+                # Create metrics table
+                create_metrics_table(path_to_exp)
 
     except Exception as e:
         logging.error(traceback.format_exc())

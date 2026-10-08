@@ -80,9 +80,12 @@ supported. Relative dataset paths are resolved from the project directory.
 Batch runs invoke the corresponding train and test scripts and save each run in
 `results/<config_stem>_<seed>/`. EFC uses the discretized CSV files; OCN uses
 `train_1_raw_data.csv`, `train_2_raw_data.csv`, and `test_raw_data.csv`.
-Baseline wrappers save `timings.json` in their results directory, containing
-`train_seconds`, `test_seconds`, and a completion status. Training resets this
-file; testing preserves the training duration. After successful testing, the
-batch runner appends those durations to `results/times`, with `null` for the
-three NeSy-only phase columns. Baseline durations measure work inside the
-wrappers; the batch total also includes subprocess startup and shutdown.
+All algorithms save `timings.json` inside their experiment directory, containing
+`train_seconds`, `test_seconds`, and a completion status. NeSy-NIDS additionally
+records training durations and statuses for its BN, explanation, and anomaly
+detection phases. Training resets this file; testing preserves training details.
+After successful testing, the batch runner appends the durations to `results/times`
+and retains the JSON. Baselines have `null` in the three NeSy-only phase columns.
+Stage durations measure work inside the scripts; the batch total also includes
+subprocess startup and shutdown. Failed stages retain their elapsed time with
+status `failed` and do not produce a successful batch timing row.

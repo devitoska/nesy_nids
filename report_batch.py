@@ -16,6 +16,13 @@ for display and never have superscripts. Yellow bold marks row maxima for
 metrics and column minima for counts, including ties before display rounding.
 If an efc/ subfolder exists, include its fixed baseline in every comparison
 and write metrics_efc.csv and unknown_mis_efc.csv with values only (no SD/CI).
+When times exists, also writes train_times.png and test_times.png: one bar per
+config, averaged across seeds, with integer-second means and subscript sample SD.
+NeSy training bars stack BN, explanations, AD, and remaining overhead; phase
+statistics appear below the bars. EFC uses its last recorded run without SD.
+Repeated timing rows for the same experiment use the last record. Missing timing
+rows for evaluated seeded configs are errors; a legacy efc/ baseline without a
+row is omitted from timing plots. Without times, existing metric plots still run.
 Use --no-plots for CSV only.
 Comparison labels use separate lines for explanation type, AD method, and seed
 count. AE labels additionally show loss and score@rejection_rate, followed by
@@ -30,8 +37,9 @@ import sys
 
 import numpy as np
 import pandas as pd
-from scipy.stats import t
 import yaml
+
+from utils_report import read_timing_summary, summarize, timing_figures
 
 
 METRIC_PATHS = {
@@ -56,19 +64,6 @@ PLOT_METRICS = (
     ("auroc", "AUROC (%)"),
     ("aupr", "AUPRC (%)"),
 )
-
-
-def summarize(values):
-    """Return statistics along the first (seed) axis, without rounding/clipping."""
-    values = np.asarray(values, dtype=float)
-    mean = values.mean(axis=0)
-    if len(values) == 1:
-        std = np.full_like(mean, np.nan)
-        margin = std
-    else:
-        std = values.std(axis=0, ddof=1)
-        margin = t.ppf(0.975, len(values) - 1) * std / np.sqrt(len(values))
-    return np.stack([mean, std, mean - margin, mean + margin])
 
 
 def read_results(experiment):
@@ -433,6 +428,9 @@ def main(argv=None):
             for name, group in groups.items()
         }
         comparison = build_comparison(groups, reports) if not args.no_plots else None
+        timings_path = args.results_folder / "times"
+        timings = (read_timing_summary(timings_path, groups)
+                   if not args.no_plots and timings_path.is_file() else None)
         for name, (metrics, counts) in reports.items():
             metrics_path = args.results_folder / f"metrics_{name}.csv"
             counts_path = args.results_folder / f"unknown_mis_{name}.csv"
@@ -441,7 +439,10 @@ def main(argv=None):
             sample = "fixed baseline" if groups[name].get("baseline") else f"{len(groups[name]['runs'])} seeds"
             print(f"{name}: {sample} -> {metrics_path}, {counts_path}")
         if comparison is not None:
-            for filename, figure in comparison_figures(comparison):
+            figures = comparison_figures(comparison)
+            if timings is not None:
+                figures.extend(timing_figures(timings))
+            for filename, figure in figures:
                 path = args.results_folder / filename
                 figure.savefig(path, facecolor="white", bbox_inches="tight")
                 figure.clear()

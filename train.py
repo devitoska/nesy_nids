@@ -14,6 +14,7 @@ from bn.train_bn import train_bn
 from bn.expl import create_expl
 from ad.train_ad import train_ad
 from config_validator import validate_config
+from baseline_wrappers.utils_baselines import record_stage_time
 
 
 def save_timings(path, timings):
@@ -33,8 +34,6 @@ def time_phase(path, timings, phase):
 
 if __name__ == "__main__":
 
-    timing_path = None
-    timings = None
     try:
         # Parse config arguments
         parser = argparse.ArgumentParser(description="Train Neurosymbolic Intrusion Detection System")
@@ -73,52 +72,44 @@ if __name__ == "__main__":
         if config["algorithm"]["type"] != "NeSy-NIDS":
             raise ValueError("train.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN")
         seed = config.get("seed", args.seed)
-        config_name = os.path.splitext(os.path.basename(args.config))[0]
-        timing_path = os.path.join("results", f"train_times_{config_name}_{seed}.json")
-        timings = {
-            "status": "running",
-            "bn_seconds": None,
-            "explanations_seconds": None,
-            "ad_seconds": None,
-            "phase_status": {
-                "bn": "skipped" if args.exp_path else "pending",
-                "explanations": "skipped" if args.exp_path else "pending",
-                "ad": "skipped" if args.no_ad else "pending",
-            },
-        }
-        save_timings(timing_path, timings)
+        experiment_dir = os.path.join("results", exp_name)
+        timing_path = os.path.join(experiment_dir, "timings.json")
+        with record_stage_time(experiment_dir, "train") as timings:
+            timings.update({
+                "bn_seconds": None,
+                "explanations_seconds": None,
+                "ad_seconds": None,
+                "phase_status": {
+                    "bn": "skipped" if args.exp_path else "pending",
+                    "explanations": "skipped" if args.exp_path else "pending",
+                    "ad": "skipped" if args.no_ad else "pending",
+                },
+            })
+            save_timings(timing_path, timings)
 
-        os.makedirs(f"results/{exp_name}", exist_ok=True)
+            # Save config yaml to base path
+            with open(os.path.join(f"results/{exp_name}", "config.yaml"), 'w') as f:
+                yaml.dump(config, f)
 
-        # Save config yaml to base path
-        with open(os.path.join(f"results/{exp_name}", "config.yaml"), 'w') as f:
-            yaml.dump(config, f)
-        
-        # Defining seeds for reproducibility
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        random.seed(seed)
+            # Defining seeds for reproducibility
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            random.seed(seed)
 
-        if not args.exp_path:
-            # Train Bayesian Network
-            with time_phase(timing_path, timings, "bn"):
-                train_bn(exp_name, config["algorithm"].get("bayesian_network"), config.get("dataset_path", "data/dataset/ton-iot_net"))
+            if not args.exp_path:
+                # Train Bayesian Network
+                with time_phase(timing_path, timings, "bn"):
+                    train_bn(exp_name, config["algorithm"].get("bayesian_network"), config.get("dataset_path", "data/dataset/ton-iot_net"))
 
-            # Create explanation vectors for Train 2 partition
-            with time_phase(timing_path, timings, "explanations"):
-                create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", {}), config.get("dataset_path", "data/dataset/ton-iot_net"))
+                # Create explanation vectors for Train 2 partition
+                with time_phase(timing_path, timings, "explanations"):
+                    create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", {}), config.get("dataset_path", "data/dataset/ton-iot_net"))
 
-        if not args.no_ad:
-            # Train anomaly detection model
-            with time_phase(timing_path, timings, "ad"):
-                train_ad(exp_name, config["algorithm"].get("anomaly_detection"), seed)
-
-        timings["status"] = "completed"
-        save_timings(timing_path, timings)
+            if not args.no_ad:
+                # Train anomaly detection model
+                with time_phase(timing_path, timings, "ad"):
+                    train_ad(exp_name, config["algorithm"].get("anomaly_detection"), seed)
 
     except Exception as e:
         logging.error(traceback.format_exc())
-        if timings is not None:
-            timings["status"] = "failed"
-            save_timings(timing_path, timings)
         raise
