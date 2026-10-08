@@ -85,7 +85,8 @@ def train_ad(exp_name, config, seed):
             t0 = time.time()
             model = model_cls(input_dim=input_dim, rejection_rate=rejection_rate, 
                               calibration_split=calibration_split,
-                              EVT_rejection_rate=EVT_rejection_rate, loss = loss, score=score)
+                              EVT_rejection_rate=EVT_rejection_rate, loss = loss, 
+                              type=type, score=score)
             model.train(data, seed)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)

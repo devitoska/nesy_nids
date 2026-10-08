@@ -61,7 +61,8 @@ def test_ad(exp_name, config):
         ad_models = {}
         for cls in class_names:
             ad_models[cls] = model_cls(input_dim=X_test.shape[1], rejection_rate=rejection_rate, 
-                                       EVT_rejection_rate=EVT_rejection_rate, loss=loss, score=score)
+                                       EVT_rejection_rate=EVT_rejection_rate, loss=loss, 
+                                       type=type, score=score)
             ad_models[cls].load(exp_name, unknown_cls, cls)
 
         y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores = model_cls.test(ad_models, X_test, gts, preds, unknown_cls)
@@ -126,7 +127,8 @@ def test_ad_recon_loss(exp_name, config, unknown_cls):
     ad_models = {}
     for cls in class_names:
         ad_models[cls] = model_cls(input_dim=X_test.shape[1], rejection_rate=rejection_rate, 
-                                   EVT_rejection_rate=EVT_rejection_rate, loss=loss, score=score)
+                                   EVT_rejection_rate=EVT_rejection_rate, loss=loss, 
+                                   type=type, score=score)
         ad_models[cls].load(exp_name, unknown_cls, cls)
 
     anomaly_scores = model_cls.get_anomaly_scores(ad_models, X_test, preds)

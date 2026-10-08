@@ -7,7 +7,7 @@ from ad.utils import calc_anomaly_score, finalize_threshold
 
 class AENet(torch.nn.Module):
     
-    def __init__(self, input_dim, latent_dim):
+    def __init__(self, input_dim, latent_dim, type = 1):
         super(AENet, self).__init__()
         self.encoder = torch.nn.Sequential(
             torch.nn.Linear(input_dim, 16),
@@ -27,8 +27,10 @@ class AENet(torch.nn.Module):
             torch.nn.BatchNorm1d(16),
             torch.nn.ReLU(),
             torch.nn.Linear(16, input_dim),
-            #torch.nn.Sigmoid(),
         )
+
+        if type % 3 == 1: # adding sigmoid for stability if type is 1 or 4 (output in [0,1]) 
+            self.decoder.append(torch.nn.Sigmoid())
 
     def forward(self, x):
         z = self.encoder(x)
@@ -39,13 +41,14 @@ class AE:
 
     def __init__(self, input_dim = None, rejection_rate = 0.01, 
                  EVT_rejection_rate = None, calibration_split = "same", 
-                 loss = "l2", score = "mse", device = "auto"):
+                 loss = "l2", score = "mse", type = 1, device = "auto"):
         self.model = None
         self.loss = loss
         self.rejection_rate = rejection_rate
         self.EVT_rejection_rate = EVT_rejection_rate
         self.calibration_split = calibration_split
         self.score = score
+        self.type = type
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         ) if device == "auto" else torch.device(device)
@@ -74,7 +77,7 @@ class AE:
             calib_data = torch.tensor(calib_data, dtype=torch.float32, device=self.device)
 
         # Training loop
-        self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim).to(self.device)
+        self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim, type=self.type).to(self.device)
 
         if self.loss == "l2":
             loss_fn = torch.nn.MSELoss()
@@ -154,7 +157,7 @@ class AE:
             self.num_exceedances = num_exceedances
 
     def load(self, exp_name, unknown_cls, cls):
-        self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim).to(self.device)
+        self.model = AENet(input_dim=self.input_dim, latent_dim=self.latent_dim, type=self.type).to(self.device)
         state = torch.load(
             f"results/{exp_name}/ad/no_{unknown_cls}/ae_{cls}.pth",
             map_location="cpu", weights_only=True,
