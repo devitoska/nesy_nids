@@ -9,17 +9,17 @@ import pandas as pd
 from bn.utils import load_bn
 from bn.inference import InferenceEngine
 
-def create_raw_dataset(data, inference_engine, bn_path, mode = "train"):
+def create_raw_dataset(data, raw_data, inference_engine, bn_path, mode = "train"):
 
     expls = []
     preds = []
     gts = []
 
-    for _, row in data.iterrows():
+    for i, row in data.iterrows():
         target_value = inference_engine.predict_from_row(row)
         gts.append(row['class'])
         preds.append(target_value)
-        expls.append(row.to_list()) # raw data as explanation vector
+        expls.append(raw_data.loc[i, :].to_list()) # raw data as explanation vector (not only markov blanket variables)
 
     # convert to tensors and save
     expls = torch.tensor(expls, dtype=torch.float32)
@@ -92,17 +92,16 @@ def create_expl(exp_name, config, data_path, mode = "train"):
             with open(os.path.join(full_path, "mb_list.pkl"), "rb") as f:
                 mb_list = pickle.load(f)
 
+        # project data on Markov Blanket variables + class
+        new_data_mb = new_data[mb_list + ["class"]]
+            
         if config is None:
             t0 = time.time()
-            # project raw data on Markov Blanket variables + class
-            new_data_raw_mb = new_data_raw[mb_list + ["class"]]
-            create_raw_dataset(new_data_raw_mb, inference_engine, full_path, mode)
+            create_raw_dataset(new_data_mb, new_data_raw, inference_engine, full_path, mode)
             t1 = time.time()
             times[cls] = round(t1 - t0, 2)
         else: 
             t0 = time.time()
-            # project data on Markov Blanket variables + class
-            new_data_mb = new_data[mb_list + ["class"]]
             create_dataset(new_data_mb, inference_engine, mb_list, full_path, mode, unobserved=config.get("unobserved", False))
             t1 = time.time()
             times[cls] = round(t1 - t0, 2)
