@@ -74,9 +74,13 @@ def create_expl(exp_name, config, data_path, mode = "train"):
             os.path.join(data_path, bn_path, split_name), dtype=str,
         )
 
+        # ensure to read the raw data as float32
         new_data_raw = pd.read_csv(
-            os.path.join(data_path, bn_path, splt_name_raw), dtype=str,
+            os.path.join(data_path, bn_path, splt_name_raw)
         )
+
+        # convert all columns of new_data_raw to float32
+        new_data_raw = new_data_raw.astype("float32")
         
         class_values = bn.get_cpds("class").state_names["class"]
         inference_engine = InferenceEngine(bn, class_values=class_values)
