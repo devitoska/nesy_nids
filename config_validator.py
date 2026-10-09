@@ -222,22 +222,18 @@ validation_schema = {
             "explanations":{
                 "type": "dict",
                 "required": False,
-                "default": {},
                 "schema": {
                   "type": {
                       "type": "integer",
-                      "required": False,
-                      "default": 1
+                      "required": False
                   },
                   "use_scaler": {
                       "type": "boolean",
-                      "required": False,
-                      "default": False
+                      "required": False
                   },
                   "unobserved": {
                       "type": "boolean",
-                      "required": False,
-                      "default": False
+                      "required": False
                   }
                 }
               }
