@@ -36,7 +36,7 @@ if __name__ == "__main__":
         with record_stage_time(path_to_exp, "test"):
             # Create explanation vectors for Test partition
             if not args.no_expl:
-                create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", {}),
+                create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", None),
                             config.get("dataset_path", "data/dataset/ton-iot_net"), mode="test")
 
             if not args.no_ad:
