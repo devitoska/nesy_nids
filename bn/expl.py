@@ -79,6 +79,9 @@ def create_expl(exp_name, config, data_path, mode = "train"):
             os.path.join(data_path, bn_path, splt_name_raw)
         )
 
+        #delete the class column from new_data_raw
+        new_data_raw = new_data_raw.drop(columns=["class"])
+
         # convert all columns of new_data_raw to float32
         new_data_raw = new_data_raw.astype("float32")
         
