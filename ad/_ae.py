@@ -29,7 +29,7 @@ class AENet(torch.nn.Module):
             torch.nn.Linear(16, input_dim),
         )
 
-        if type % 3 == 1: # adding sigmoid for stability if type is 1 or 4 (output in [0,1]) 
+        if type is not None and type % 3 == 1: # adding sigmoid for stability if type is 1 or 4 (output in [0,1]) 
             self.decoder.append(torch.nn.Sigmoid())
 
     def forward(self, x):
