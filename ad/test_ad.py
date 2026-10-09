@@ -30,9 +30,15 @@ def test_ad(exp_name, config):
     rejection_rate = config.get("rejection_rate", 0.01)
     EVT_rejection_rate = config.get("EVT_rejection_rate", None)
     score = config.get("score", "mse")
-    type = config["explanations"].get("type", 1)
-    use_scaler = config["explanations"].get("use_scaler", False)
-    unobserved = config["explanations"].get("unobserved", False)
+
+    if config.get("explanations", None) is None:
+        type = None
+        use_scaler = False
+        unobserved = False
+    else:
+        type = config["explanations"].get("type", 1)
+        use_scaler = config["explanations"].get("use_scaler", False)
+        unobserved = config["explanations"].get("unobserved", False)
 
     for bn_path in bn_paths:
 
@@ -100,10 +106,16 @@ def test_ad_recon_loss(exp_name, config, unknown_cls):
     rejection_rate = config.get("rejection_rate", 0.01)
     EVT_rejection_rate = config.get("EVT_rejection_rate", 0.05)
     score = config.get("score", "mse")
-    type = config["explanations"].get("type", 1)
-    use_scaler = config["explanations"].get("use_scaler", False)
-    unobserved = config["explanations"].get("unobserved", False)
-    
+
+    if config.get("explanations", None) is None:
+        type = None
+        use_scaler = False
+        unobserved = False
+    else:
+        type = config["explanations"].get("type", 1)
+        use_scaler = config["explanations"].get("use_scaler", False)
+        unobserved = config["explanations"].get("unobserved", False)
+
     full_path = os.path.join(f"results/{exp_name}/bn/no_{unknown_cls}")
 
     # load the bayesian network

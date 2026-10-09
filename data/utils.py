@@ -2,6 +2,7 @@ import warnings
 import optbinning as optb
 import numpy as np
 import pandas as pd
+import os
 
 num_bins = 50
 hierarchical_coarse_bins = 32
@@ -186,3 +187,116 @@ def get_bins(data, col, col_data, mode="base"):
         raise ValueError(f"Invalid mode: {mode}")
 
     return bin_edges
+
+def preprocess_loop(
+        output_dir,
+        raw_train1,
+        raw_train2,
+        raw_test,
+        unknown_classes,
+        categorical_columns,
+        mode="base",
+):
+    for unknown_cls in unknown_classes:
+        train1 = raw_train1.loc[raw_train1["class"] != unknown_cls].copy()
+        train2 = raw_train2.loc[raw_train2["class"] != unknown_cls].copy()
+        test = raw_test.copy()
+
+        known_train = pd.concat([train1.copy(), train2.copy()], ignore_index=True)
+        partitions = [train1.copy(), train2.copy(), test.copy()]
+        partitions_raw = [train1.copy(), train2.copy(), test.copy()]
+
+        # create a directory for the experiment
+        experiment_dir = os.path.join(output_dir, f"no_{unknown_cls}")
+        os.makedirs(experiment_dir, exist_ok=True)
+
+        drop_columns = []
+        drop_columns_raw = []
+
+        for col in known_train.columns:
+            if col == "class":
+                continue
+            if known_train[col].nunique() <= 1:
+                drop_columns.append(col)
+                drop_columns_raw.append(col)
+                continue
+
+            if col in categorical_columns:
+                # Vocabulary comes exclusively from known training examples.
+                categories = pd.Index(known_train[col].dropna().unique())
+                for i in range(len(partitions)):
+                    partitions[i][col] = pd.Categorical(
+                        partitions[i][col], categories=categories,
+                    ).codes  # Unseen or missing categories receive -1.
+
+                    partitions_raw[i][col] = partitions[i][col].copy() / len(categories)  # Normalize to [0, 1] range.
+            else:
+                train_min = known_train[col].min()
+                train_range = known_train[col].max() - train_min
+                # Normalize the training data
+                normalized_train = (known_train[col] - train_min) / train_range
+                
+                n_unique = known_train[col].nunique()
+                n_samples = len(known_train[col])
+                
+                minimum_unique = max(
+                    4 * num_bins,             # at least 200 distinct values
+                    int(0.005 * n_samples),   # at least 0.5% sample cardinality
+                )
+
+                if mode == "hierarchical" and minimum_unique < n_unique:
+                    leaf_edges, within_bins = hierarchical_planning(
+                        normalized_train
+                    )
+                    for i in range(len(partitions)):
+                        normalized_partition = (
+                            partitions[i][col] - train_min
+                        ) / train_range
+                        coarse_ids, within_ids = hierarchical_binning(
+                            normalized_partition, leaf_edges, within_bins
+                        )
+                        partitions[i][f"{col}_1"] = coarse_ids
+                        partitions[i][f"{col}_2"] = within_ids
+                        # partitions raw takes normalized_partition
+                        partitions_raw[i][col] = normalized_partition
+
+                    drop_columns.append(col)
+                else:
+                    bin_edges = get_bins(
+                        known_train, col, normalized_train, mode=mode
+                    )
+
+                    for i in range(len(partitions)):
+                        normalized_partition = (partitions[i][col] - train_min) / train_range
+                        partitions[i][col] = pd.cut(
+                            normalized_partition, bins=bin_edges, labels=False, include_lowest=True,
+                        )
+                        # partitions raw takes normalized_partition
+                        partitions_raw[i][col] = normalized_partition
+
+                    if pd.concat([train1[col], train2[col]]).nunique() <= 1:
+                        drop_columns.append(col)
+        
+        for i, name in enumerate(("train_1", "train_2", "test")):
+            partitions[i] = partitions[i].drop(columns=drop_columns)
+            partitions_raw[i] = partitions_raw[i].drop(columns=drop_columns_raw)
+            # order fields alphabetically, with class last
+            partitions[i] = partitions[i][
+                sorted(c for c in partitions[i].columns if c != "class")
+                + ["class"]
+            ]
+            # Save the partition to a CSV file in the experiment directory.
+            partitions[i].to_csv(
+                os.path.join(experiment_dir, f"{name}_data.csv"), index=False,
+            )
+            print(f"no_{unknown_cls}/{name}: {len(partitions[i])} samples")
+
+            # Save the raw partition to a CSV file in the experiment directory.
+            partitions_raw[i].to_csv(
+                os.path.join(experiment_dir, f"{name}_raw_data.csv"), index=False,
+            )
+        all = pd.concat(partitions, ignore_index=True)
+        all.to_csv(
+            os.path.join(experiment_dir, "all" \
+            "_data.csv"), index=False,
+        )

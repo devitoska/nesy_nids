@@ -53,8 +53,11 @@ def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserve
         unobserved_mask = (E == -1)
         # substitute mask with safe probabilities (to avoid big intermediate calculations)
         E[unobserved_mask] = 0.5  # Replace -1 with a safe value
-   
-    if type == 1:
+    
+    if type is None:
+        # do nothing, just return the original explanations
+        transformed_E = E
+    elif type == 1:
         # First transformation: Pop the first column (posterior probability of the target class)
         # Then divide each other column by this value (row-wise division) and compute the inverse (1/x) of the result
         posterior_probs = E[:, 0]
@@ -80,10 +83,10 @@ def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserve
         transformed_E = np.concatenate((posterior_probs[:, np.newaxis], transformed_E), axis=1)
     else:
         raise ValueError("Invalid transformation type")
-
-    # If unobserved is True, replace the -1 values with the corresponding special values
-    special_values = {1: 0, 2: -1, 3: 2*np.log((eps)/(1-eps)), 4: 0}
-    if unobserved:
+    
+    if unobserved and type is not None:
+        # If unobserved is True, replace the -1 values with the corresponding special values
+        special_values = {1: 0, 2: -1, 3: 2*np.log((eps)/(1-eps)), 4: 0}
         if type > 1:
             transformed_E[unobserved_mask] = special_values[type]
         else:

@@ -59,7 +59,6 @@ def create_expl(exp_name, config, data_path, mode = "train"):
         if os.path.isdir(os.path.join(f"results/{exp_name}/bn", d))
     )
 
-    unobserved = config.get("unobserved", False)
     times = {}
 
     for bn_path in bn_paths:
@@ -69,12 +68,15 @@ def create_expl(exp_name, config, data_path, mode = "train"):
         
         # Each BN has its own preprocessing and matching saved partitions.
         split_name = "train_2_data.csv" if mode == "train" else "test_data.csv"
+        splt_name_raw = "train_2_raw_data.csv" if mode == "train" else "test_raw_data.csv"
+
         new_data = pd.read_csv(
             os.path.join(data_path, bn_path, split_name), dtype=str,
         )
-        if mode == "train" and new_data["class"].eq(cls).any():
-            raise ValueError(f"Unknown class {cls} found in detector training data")
 
+        new_data_raw = pd.read_csv(
+            os.path.join(data_path, bn_path, splt_name_raw), dtype=str,
+        )
         
         class_values = bn.get_cpds("class").state_names["class"]
         inference_engine = InferenceEngine(bn, class_values=class_values)
@@ -89,18 +91,19 @@ def create_expl(exp_name, config, data_path, mode = "train"):
             # load markov blanket variables from file
             with open(os.path.join(full_path, "mb_list.pkl"), "rb") as f:
                 mb_list = pickle.load(f)
-        
-        # project data on Markov Blanket variables + class
-        new_data_mb = new_data[mb_list + ["class"]]
 
         if config is None:
             t0 = time.time()
-            create_raw_dataset(new_data_mb, inference_engine, full_path, mode)
+            # project raw data on Markov Blanket variables + class
+            new_data_raw_mb = new_data_raw[mb_list + ["class"]]
+            create_raw_dataset(new_data_raw_mb, inference_engine, full_path, mode)
             t1 = time.time()
             times[cls] = round(t1 - t0, 2)
-        else:
+        else: 
             t0 = time.time()
-            create_dataset(new_data_mb, inference_engine, mb_list, full_path, mode, unobserved=unobserved)
+            # project data on Markov Blanket variables + class
+            new_data_mb = new_data[mb_list + ["class"]]
+            create_dataset(new_data_mb, inference_engine, mb_list, full_path, mode, unobserved=config.get("unobserved", False))
             t1 = time.time()
             times[cls] = round(t1 - t0, 2)
     

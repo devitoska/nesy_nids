@@ -36,9 +36,15 @@ def train_ad(exp_name, config, seed):
     calibration_split = config.get("calibration_split", "same")
     score = config.get("score", "mse")
     misclassified = config.get("misclassified", False)
-    type = config["explanations"].get("type", 1)
-    use_scaler = config["explanations"].get("use_scaler", False)
-    unobserved = config["explanations"].get("unobserved", False)
+
+    if config.get("explanations", None) is None:
+        type = None
+        use_scaler = False
+        unobserved = False
+    else:
+        type = config["explanations"].get("type", 1)
+        use_scaler = config["explanations"].get("use_scaler", False)
+        unobserved = config["explanations"].get("unobserved", False)
     
 
     for bn_path in bn_paths:
@@ -60,6 +66,7 @@ def train_ad(exp_name, config, seed):
             scaler = None
 
         X_train = transform_explanations(X_train, scaler=scaler, type=type, unobserved=unobserved, mode='train')
+        
 
         # save the scaler to file
         with open(os.path.join(full_path, "scaler.pkl"), "wb") as f:
