@@ -8,7 +8,7 @@ random_state = 42
 train_1_split = 0.4
 train_2_split = 0.4
 test_split = 0.2
-num_bins = 80
+num_bins = 50
 
 def preprocess(data, output_dir="data/dataset/CIC-UNSW-NB15", mode = "base"):
     data = data.copy()
