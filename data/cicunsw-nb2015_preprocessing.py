@@ -19,9 +19,9 @@ def preprocess(data, output_dir="data/dataset/CIC-UNSW-NB15", mode = "base"):
     # Rename "Benign" label to "normal" for consistency with other datasets.
     data["class"] = data["class"].replace(to_replace="Benign", value="normal")
 
-    # keep only the 20% of normal rows to balance the dataset
+    # keep only the 50,000 of normal rows to balance the dataset
     normal_rows = data[data["class"] == "normal"]
-    normal_rows = normal_rows.sample(frac=0.2, random_state=random_state)
+    normal_rows = normal_rows.sample(n=50000, random_state=random_state)
     data = pd.concat([data[data["class"] != "normal"], normal_rows], ignore_index=True)
 
     # Keep the same raw rows in each split across all held-out attacks.
