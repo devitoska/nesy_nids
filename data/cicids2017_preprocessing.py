@@ -55,6 +55,7 @@ def preprocess(data, output_dir="data/dataset/CIC-IDS-2017", mode = "base"):
         raw_test=raw_test,
         unknown_classes=unknown_classes,
         categorical_columns=categorical_columns,
+        num_bins=num_bins,
         mode=mode,
     )
 

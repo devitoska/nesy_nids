@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import os
 
-num_bins = 50
 hierarchical_coarse_bins = 32
 hierarchical_within_bins = 32
 
@@ -73,7 +72,7 @@ def hierarchical_binning(values, leaf_edges, within_bins):
     return coarse_ids, within_ids
 
 
-def get_bins(data, col, col_data, mode="base"):
+def get_bins(data, col, col_data, num_bins, mode="base"):
     """Return bin edges learned exclusively from the known training data."""
     bin_edges = None
 
@@ -195,6 +194,7 @@ def preprocess_loop(
         raw_test,
         unknown_classes,
         categorical_columns,
+        num_bins=50,
         mode="base",
 ):
     for unknown_cls in unknown_classes:
@@ -263,7 +263,7 @@ def preprocess_loop(
                     drop_columns.append(col)
                 else:
                     bin_edges = get_bins(
-                        known_train, col, normalized_train, mode=mode
+                        known_train, col, normalized_train, num_bins=num_bins, mode=mode
                     )
 
                     for i in range(len(partitions)):

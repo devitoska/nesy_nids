@@ -8,7 +8,7 @@ random_state = 42
 train_1_split = 0.4
 train_2_split = 0.4
 test_split = 0.2
-num_bins = 50
+num_bins = 80
 
 def preprocess(data, output_dir="data/dataset/CIC-UNSW-NB15", mode = "base"):
     data = data.copy()
@@ -47,6 +47,7 @@ def preprocess(data, output_dir="data/dataset/CIC-UNSW-NB15", mode = "base"):
             raw_test=raw_test,
             unknown_classes=unknown_classes,
             categorical_columns=categorical_columns,
+            num_bins=num_bins,
             mode=mode,
     )
 
@@ -72,4 +73,4 @@ if __name__ == "__main__":
     labels = pd.read_csv(label_csv)
     data["label"] = labels["Label"].map(numeric_to_label)
     data.to_csv(os.path.join(dataset_dir, "LabeledData.csv"), index=False)
-    preprocess(data, output_dir=dataset_dir, mode = "hierarchical")
+    preprocess(data, output_dir=dataset_dir, mode = "base")
