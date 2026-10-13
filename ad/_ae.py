@@ -2,6 +2,7 @@ import pickle
 import torch
 import torch.nn
 import pickle
+import numpy as np
 from sklearn.model_selection import train_test_split
 from ad.utils import calc_anomaly_score, finalize_threshold
 
@@ -62,19 +63,31 @@ class AE:
         self.latent_dim = 4
         self.num_exceedances = None # Number of exceedances above the threshold in the calibration set (for EVT diagnostics)
 
-    def train(self, data, seed):
+    def train(self, data, seed, correctness_mask=None):
 
+        if correctness_mask is not None:
+            correctness_mask = np.asarray(correctness_mask)
+            if correctness_mask.shape != (len(data),) or correctness_mask.dtype.kind != "b":
+                raise ValueError("correctness_mask must contain one Boolean per training sample.")
+        if self.rejection_rate == "auto" and correctness_mask is None:
+            raise ValueError("rejection_rate='auto' requires a correctness_mask for Youden calibration.")
+
+        indices = np.arange(len(data))
         if self.calibration_split == "same":
-            train_data, val_data = train_test_split(data, test_size=0.2, random_state=seed)
-            train_data = torch.tensor(train_data, dtype=torch.float32, device=self.device)
-            val_data = torch.tensor(val_data, dtype=torch.float32, device=self.device)
-            calib_data = val_data.clone()
+            train_indices, val_indices = train_test_split(indices, test_size=0.2, random_state=seed)
+            calib_indices = val_indices
         else:
-            train_data, val_data = train_test_split(data, test_size=0.3, random_state=seed)
-            calib_data, val_data = train_test_split(val_data, test_size=1/3, random_state=seed)
-            train_data = torch.tensor(train_data, dtype=torch.float32, device=self.device)
-            val_data = torch.tensor(val_data, dtype=torch.float32, device=self.device)
-            calib_data = torch.tensor(calib_data, dtype=torch.float32, device=self.device)
+            train_indices, heldout_indices = train_test_split(indices, test_size=0.3, random_state=seed)
+            calib_indices, val_indices = train_test_split(heldout_indices, test_size=1/3, random_state=seed)
+        calib_correctness = None if correctness_mask is None else correctness_mask[calib_indices]
+        if self.rejection_rate == "auto" and (not calib_correctness.any() or calib_correctness.all()):
+            raise ValueError(
+                "Youden calibration requires both correct and incorrect samples in the calibration split; "
+                "include misclassified samples and ensure both groups are represented."
+            )
+        train_data = torch.tensor(data[train_indices], dtype=torch.float32, device=self.device)
+        val_data = torch.tensor(data[val_indices], dtype=torch.float32, device=self.device)
+        calib_data = torch.tensor(data[calib_indices], dtype=torch.float32, device=self.device)
 
         # Training loop
         self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim, type=self.type).to(self.device)
@@ -153,7 +166,10 @@ class AE:
             anomaly_scores = calc_anomaly_score(X_cls, X_recon, score=self.score, 
                                                 residual_mean=self.residual_mean, residual_cov=self.residual_cov)
 
-            self.threshold, num_exceedances = finalize_threshold(anomaly_scores, self.rejection_rate, self.EVT_rejection_rate)
+            self.threshold, num_exceedances = finalize_threshold(
+                anomaly_scores, self.rejection_rate, self.EVT_rejection_rate,
+                correctness_mask=calib_correctness,
+            )
             self.num_exceedances = num_exceedances
 
     def load(self, exp_name, unknown_cls, cls):

@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from statsmodels.stats.stattools import medcouple
 import torch
 from scipy.stats import genpareto
 
@@ -170,13 +169,19 @@ def calc_anomaly_score(
 
 def finalize_threshold(
     anomaly_scores, rejection_rate, EVT_rejection_rate=None, *, min_exceedances=2,
+    correctness_mask=None,
 ):
     """Return an empirical cutoff or a peaks-over-threshold EVT cutoff.
 
     Without EVT, rejection_rate specifies the empirical upper-tail fraction.
     With EVT, it selects the initial tail-fitting threshold; EVT_rejection_rate
     specifies the target rejection probability over the entire reference
-    distribution. Both rates must be strictly between zero and one.
+    distribution. Numeric rates must be strictly between zero and one.
+    rejection_rate="auto" selects the cutoff maximizing Youden's index for
+    rejecting incorrect assignments (score > cutoff). correctness_mask must
+    contain one Boolean per score: True for correct, False for incorrect.
+    Both groups are required. Ties in Youden's index use the highest cutoff.
+    With EVT enabled, this cutoff is the initial tail-fitting boundary.
 
     Scores must be a nonempty, finite, one-dimensional array. EVT requires
     a target no larger than the observed fraction above the initial threshold.
@@ -209,10 +214,25 @@ def finalize_threshold(
             raise ValueError(f"{name} must be a finite number strictly between 0 and 1.")
 
     if isinstance(rejection_rate, str) and rejection_rate == "auto":
-        q1, q3 = np.percentile(scores, [25, 75])
-        mc = float(medcouple(scores)) if np.any(scores != scores[0]) else 0.0
-        skew_adjustment = np.exp((3.0 if mc >= 0 else 4.0) * mc)
-        threshold = float(q3 + 1.5 * skew_adjustment * (q3 - q1))
+        correct = np.asarray(correctness_mask)
+        if correct.shape != scores.shape or correct.dtype.kind != "b":
+            raise ValueError("Youden threshold requires a Boolean correctness_mask aligned with anomaly_scores.")
+        n_correct = int(correct.sum())
+        n_incorrect = scores.size - n_correct
+        if not n_correct or not n_incorrect:
+            raise ValueError("Youden threshold requires both correct and incorrect calibration samples.")
+
+        order = np.argsort(scores, kind="stable")
+        sorted_scores = scores[order]
+        # Include all equal scores on the accepted side, matching score > cutoff.
+        ends = np.flatnonzero(np.r_[sorted_scores[1:] != sorted_scores[:-1], True])
+        accepted_correct = np.cumsum(correct[order])[ends]
+        accepted_incorrect = ends + 1 - accepted_correct
+        # J = F_correct(cutoff) - F_incorrect(cutoff). Compare integer
+        # numerators so equal optima are not separated by rounding error.
+        youden = accepted_correct * n_incorrect - accepted_incorrect * n_correct
+        best = np.flatnonzero(youden == youden.max())[-1]
+        threshold = float(sorted_scores[ends[best]])
     else:
         threshold = float(np.percentile(scores, 100 * (1 - rejection_rate)))
     if not np.isfinite(threshold):

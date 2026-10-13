@@ -65,8 +65,8 @@ def train_ad(exp_name, config, seed):
         else:
             scaler = None
 
-        X_train = transform_explanations(X_train, scaler=scaler, type=type, unobserved=unobserved, mode='train')
-        
+        X_train = transform_explanations(X_train, scaler=scaler, type=type, 
+                                        unobserved=unobserved, mode='train')
 
         # save the scaler to file
         with open(os.path.join(full_path, "scaler.pkl"), "wb") as f:
@@ -87,15 +87,20 @@ def train_ad(exp_name, config, seed):
 
             if misclassified:
                 data = pred_by_class
+                correctness_mask = gts[preds == cls] == cls
             else:
                 data = good_by_class
+                correctness_mask = np.ones(len(data), dtype=bool)
 
             t0 = time.time()
             model = model_cls(input_dim=input_dim, rejection_rate=rejection_rate, 
                               calibration_split=calibration_split,
                               EVT_rejection_rate=EVT_rejection_rate, loss = loss, 
                               type=type, score=score)
-            model.train(data, seed)
+            if model_cls is AE:
+                model.train(data, seed, correctness_mask=correctness_mask)
+            else:
+                model.train(data, seed)
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)
             model.save(exp_name, unknown_cls, class_names[cls])
