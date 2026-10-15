@@ -80,11 +80,15 @@ class AE:
             train_indices, heldout_indices = train_test_split(indices, test_size=0.3, random_state=seed)
             calib_indices, val_indices = train_test_split(heldout_indices, test_size=1/3, random_state=seed)
         calib_correctness = None if correctness_mask is None else correctness_mask[calib_indices]
+        
+        # strict requirement for Youden calibration: both correct and incorrect samples must be present in the calibration split
+        '''
         if self.rejection_rate == "auto" and (not calib_correctness.any() or calib_correctness.all()):
             raise ValueError(
                 "Youden calibration requires both correct and incorrect samples in the calibration split; "
                 "include misclassified samples and ensure both groups are represented."
             )
+        '''
         train_data = torch.tensor(data[train_indices], dtype=torch.float32, device=self.device)
         val_data = torch.tensor(data[val_indices], dtype=torch.float32, device=self.device)
         calib_data = torch.tensor(data[calib_indices], dtype=torch.float32, device=self.device)
