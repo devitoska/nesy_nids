@@ -102,6 +102,23 @@ def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserve
 
     return transformed_E
 
+def select_youden_threshold(scores, correct, budget_percent=2.5):
+    if budget_percent is not None or not 0<=budget_percent<100:
+        raise ValueError('Budget must be a percent from 0 to 99')
+    scores=np.asarray(scores,dtype=float)
+    correct=np.asarray(correct)
+    nc=int(correct.sum())
+    ni=len(correct)-nc
+    order=np.argsort(scores,kind='stable')
+    s=scores[order]
+    ends=np.flatnonzero(np.r_[s[1:]!=s[:-1],True])
+    ac=np.cumsum(correct[order])[ends];ai=ends+1-ac
+    numerator=ac*ni-ai*nc
+    feasible= (nc-ac)<=nc*budget_percent//100
+    candidates=np.flatnonzero(feasible)
+    chosen=candidates[np.flatnonzero(numerator[candidates]==numerator[candidates].max())[-1]]
+    return float(s[ends[chosen]])
+
 def calc_anomaly_score(
     x: torch.Tensor, x_: torch.Tensor, score="mse", *,
     residual_mean: torch.Tensor = None, residual_cov: torch.Tensor = None,
@@ -225,17 +242,7 @@ def finalize_threshold(
         if not n_incorrect:
             threshold = float(np.percentile(scores[correct], 95))
         else:
-            order = np.argsort(scores, kind="stable")
-            sorted_scores = scores[order]
-            # Include all equal scores on the accepted side, matching score > cutoff.
-            ends = np.flatnonzero(np.r_[sorted_scores[1:] != sorted_scores[:-1], True])
-            accepted_correct = np.cumsum(correct[order])[ends]
-            accepted_incorrect = ends + 1 - accepted_correct
-            # J = F_correct(cutoff) - F_incorrect(cutoff). Compare integer
-            # numerators so equal optima are not separated by rounding error.
-            youden = accepted_correct * n_incorrect - accepted_incorrect * n_correct
-            best = np.flatnonzero(youden == youden.max())[-1]
-            threshold = float(sorted_scores[ends[best]])
+            threshold = select_youden_threshold(scores, correct, budget_percent=2.5)
     else:
         threshold = float(np.percentile(scores, 100 * (1 - rejection_rate)))
     if not np.isfinite(threshold):
