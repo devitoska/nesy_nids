@@ -1,3 +1,6 @@
+seed:
+- 32
+- 42
 dataset_path: data/dataset/ton-iot_net
 algorithm:
   type: NeSy-NIDS

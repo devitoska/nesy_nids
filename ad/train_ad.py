@@ -1,4 +1,5 @@
 import os
+import glob
 import logging
 import numpy as np
 import torch
@@ -58,7 +59,6 @@ def train_ad(exp_name, config, seed):
 
         # load explanations
         X_train = torch.load(os.path.join(full_path, "explanations_train.pt")).numpy()
-        input_dim = X_train.shape[1]
 
         if use_scaler:
             scaler = RobustScaler()
@@ -67,6 +67,8 @@ def train_ad(exp_name, config, seed):
 
         X_train = transform_explanations(X_train, scaler=scaler, type=type, 
                                         unobserved=unobserved, mode='train')
+
+        input_dim = X_train.shape[1]
 
         # save the scaler to file
         with open(os.path.join(full_path, "scaler.pkl"), "wb") as f:
@@ -79,11 +81,22 @@ def train_ad(exp_name, config, seed):
         preds = np.array([class_names.index(pred) for pred in preds])
 
         times[unknown_cls] = 0
-        os.makedirs(f"results/{exp_name}/ad/no_{unknown_cls}", exist_ok=True)
+        main_path = f"results/{exp_name}/ad/no_{unknown_cls}"
+
+        os.makedirs(main_path, exist_ok=True)
         
         for cls in range(len(class_names)):
             good_by_class = X_train[(gts == cls) & (preds == cls)]
             pred_by_class = X_train[(preds == cls)]
+
+            only_load = None
+            matching_paths = glob.glob(os.path.join(main_path, f"{model_cls.__name__.lower()}_{class_names[cls]}*"))
+
+            # Triggers True only if at least one of the matches is a file
+            if any(os.path.isfile(p) for p in matching_paths):
+                only_load = True
+            else:
+                only_load = False
 
             if misclassified:
                 data = pred_by_class
@@ -93,14 +106,20 @@ def train_ad(exp_name, config, seed):
                 correctness_mask = np.ones(len(data), dtype=bool)
 
             t0 = time.time()
+
             model = model_cls(input_dim=input_dim, rejection_rate=rejection_rate, 
                               calibration_split=calibration_split,
                               EVT_rejection_rate=EVT_rejection_rate, loss = loss, 
                               type=type, score=score)
+
+            if only_load:
+                model.load(exp_name, unknown_cls, class_names[cls])
+            
             if model_cls is AE:
-                model.train(data, seed, correctness_mask=correctness_mask)
-            else:
+                model.train(data, seed, only_load=only_load, correctness_mask=correctness_mask)
+            elif not only_load:
                 model.train(data, seed)
+
             t1 = time.time()
             times[unknown_cls] += (t1 - t0)
             model.save(exp_name, unknown_cls, class_names[cls])

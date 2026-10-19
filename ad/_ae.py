@@ -63,7 +63,7 @@ class AE:
         self.latent_dim = 4
         self.num_exceedances = None # Number of exceedances above the threshold in the calibration set (for EVT diagnostics)
 
-    def train(self, data, seed, correctness_mask=None):
+    def train(self, data, seed, only_load = False, correctness_mask=None):
 
         if correctness_mask is not None:
             correctness_mask = np.asarray(correctness_mask)
@@ -79,6 +79,7 @@ class AE:
         else:
             train_indices, heldout_indices = train_test_split(indices, test_size=0.3, random_state=seed)
             calib_indices, val_indices = train_test_split(heldout_indices, test_size=1/3, random_state=seed)
+        
         calib_correctness = None if correctness_mask is None else correctness_mask[calib_indices]
         
         # strict requirement for Youden calibration: both correct and incorrect samples must be present in the calibration split
@@ -96,61 +97,65 @@ class AE:
         # Training loop
         self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim, type=self.type).to(self.device)
 
-        if self.loss == "l2":
-            loss_fn = torch.nn.MSELoss()
-        elif self.loss == "huber":
-            loss_fn = torch.nn.HuberLoss(delta=1.0)
-        else:
-            raise ValueError("Invalid loss function")
+        if not only_load:
+            if self.loss == "l2":
+                loss_fn = torch.nn.MSELoss()
+            elif self.loss == "huber":
+                loss_fn = torch.nn.HuberLoss(delta=1.0)
+            else:
+                raise ValueError("Invalid loss function")
 
-        optimizer =  torch.optim.Adam(self.model.parameters(), lr=self.lr)
-        
-        dataset = torch.utils.data.TensorDataset(train_data)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
-        
-        #progress_bar = tqdm(range(epochs), desc="Training AE with L2 Loss")
-        best_val_loss = float("inf")
-        patience = 10
-        counter = 0
-        eps = 1e-5
-        best_state = None
+            optimizer =  torch.optim.Adam(self.model.parameters(), lr=self.lr)
+            
+            dataset = torch.utils.data.TensorDataset(train_data)
+            dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
+            
+            #progress_bar = tqdm(range(epochs), desc="Training AE with L2 Loss")
+            best_val_loss = float("inf")
+            patience = 10
+            counter = 0
+            eps = 1e-5
+            best_state = None
 
-        for _ in range(self.epochs):
-            self.model.train()
-            for batch in dataloader:
-                x = batch[0]  # Extract the first element of the batch (the data)
-                optimizer.zero_grad()
-                x_recon = self.model(x)
-                loss = loss_fn(x_recon, x)
-                loss.backward()
-                optimizer.step()
+            for _ in range(self.epochs):
+                self.model.train()
+                for batch in dataloader:
+                    x = batch[0]  # Extract the first element of the batch (the data)
+                    optimizer.zero_grad()
+                    x_recon = self.model(x)
+                    loss = loss_fn(x_recon, x)
+                    loss.backward()
+                    optimizer.step()
+                
+                
+                self.model.eval()
+                
+                if val_data is not None:
+                    with torch.no_grad():
+                        x_val = val_data
+                        x_val_recon = self.model(x_val)
+                        val_loss = loss_fn(x_val_recon, x_val).item()
+                        # early stopping
+                        if val_loss + eps < best_val_loss:
+                            best_val_loss = val_loss
+                            counter = 0
+                            best_state = {
+                                name: tensor.detach().clone()
+                                for name, tensor in self.model.state_dict().items()
+                            }
+                        else:
+                            counter += 1
+                        if counter >= patience:
+                            #print(f"Early stopping at epoch {_+1}")
+                            break
             
-            
-            self.model.eval()
-            
-            if val_data is not None:
-                with torch.no_grad():
-                    x_val = val_data
-                    x_val_recon = self.model(x_val)
-                    val_loss = loss_fn(x_val_recon, x_val).item()
-                    # early stopping
-                    if val_loss + eps < best_val_loss:
-                        best_val_loss = val_loss
-                        counter = 0
-                        best_state = {
-                            name: tensor.detach().clone()
-                            for name, tensor in self.model.state_dict().items()
-                        }
-                    else:
-                        counter += 1
-                    if counter >= patience:
-                        #print(f"Early stopping at epoch {_+1}")
-                        break
-        
-        if best_state is None:
-            raise RuntimeError("AE training did not produce a valid validation checkpoint")
-        self.model.load_state_dict(best_state)
+            if best_state is None:
+                raise RuntimeError("AE training did not produce a valid validation checkpoint")
+            self.model.load_state_dict(best_state)
 
+        self.calibrate(calib_data, calib_correctness)
+
+    def calibrate(self, calib_data, calib_correctness):
         # get anomaly score on the validation set
         self.model.eval()
         

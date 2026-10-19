@@ -60,13 +60,14 @@ def test_ad(exp_name, config):
             scaler = None
 
         X_test = transform_explanations(X_test, scaler=scaler, type=type, unobserved=unobserved, mode='test')
+        input_dim = X_test.shape[1]
 
         gts = pickle.load(open(os.path.join(full_path, "gts_test.pkl"), "rb"))
         preds = pickle.load(open(os.path.join(full_path, "preds_test.pkl"), "rb"))
         
         ad_models = {}
         for cls in class_names:
-            ad_models[cls] = model_cls(input_dim=X_test.shape[1], rejection_rate=rejection_rate, 
+            ad_models[cls] = model_cls(input_dim=input_dim, rejection_rate=rejection_rate, 
                                        EVT_rejection_rate=EVT_rejection_rate, loss=loss, 
                                        type=type, score=score)
             ad_models[cls].load(exp_name, unknown_cls, cls)

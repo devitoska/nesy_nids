@@ -1,6 +1,7 @@
 """Train and test every YAML config: python run_batch.py --num_seed 3 --threads 2.
 
-EFC runs once per config; other algorithms use --num_seed repetitions.
+Explicit config seeds are used in order; otherwise --num_seed seeds are sampled.
+EFC runs once per config, using the first seed when explicitly configured.
 Append tab-separated experiment, total_seconds, train_seconds, test_seconds,
 bn_seconds, explanations_seconds, ad_seconds to results/times after each
 experiment. All algorithms retain train/test totals in each run's timings.json;
@@ -140,7 +141,7 @@ class ProcessRunner:
                         self._active.discard(process)
 
 
-def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, processes):
+def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, processes, test=False):
     results_dir = times_path.parent
     with run_config.open(encoding="utf-8") as config_file:
         config = validate_config(yaml.safe_load(config_file))
@@ -162,8 +163,13 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
         test_arguments = arguments
     else:
         train_script, test_script = "train.py", "test.py"
+        # train arguments
         train_arguments = ["--config", str(run_config), "--name", name, "--seed", str(seed)]
         test_arguments = ["--exp_path", str(experiment_dir)]
+        if test:
+            train_arguments.extend(["--exp_path", str(experiment_dir)])
+            test_arguments.extend(["--no_expl"])
+            
     print(f"Running {name}", flush=True)
     started = time.perf_counter()
     processes.run_script(project_dir, train_script, train_arguments, seed)
@@ -198,7 +204,7 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
     )
 
 
-def run_experiments(project_dir, experiments, times_path, threads, timeout):
+def run_experiments(project_dir, experiments, times_path, threads, timeout, test = False):
     processes = ProcessRunner(timeout)
     times_lock = Lock()
     futures = []
@@ -221,7 +227,7 @@ def run_experiments(project_dir, experiments, times_path, threads, timeout):
                 break
             futures.append(executor.submit(
                 run_experiment, project_dir, run_config, name, seed,
-                times_path, times_lock, processes,
+                times_path, times_lock, processes, test
             ))
         for future in as_completed(futures):
             future.result()
@@ -248,9 +254,10 @@ def run_experiments(project_dir, experiments, times_path, threads, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description="Train and test all configs in configs/.")
-    parser.add_argument("--num_seed", type=int, default=1, help="Runs per config; EFC always runs once (default: 1)")
+    parser.add_argument("--num_seed", type=int, default=1, help="Runs per config without explicit seeds; EFC always runs once (default: 1)")
     parser.add_argument("--seed", type=int, default=42, help="Initial random seed (default: 42)")
     parser.add_argument("--threads", type=int, default=1, help="Maximum concurrent subprocesses (default: 1)")
+    parser.add_argument("--test", action="store_true", help="Assume training and run only testing")
     parser.add_argument(
         "--skip", type=int,
         help="Skip the first N experiments; count each EFC config once",
@@ -289,15 +296,24 @@ def main():
     for config_path in configs:
         with config_path.open(encoding="utf-8") as config_file:
             config = yaml.safe_load(config_file)
+        has_seed = isinstance(config, dict) and "seed" in config
         try:
             config = validate_config(config)
         except ValueError as error:
             parser.error(f"{config_path}: {error}")
-        repetitions = 1 if config["algorithm"]["type"] == "EFC" else args.num_seed
-        planned_configs.append((config_path, config, repetitions))
+        config_seeds = config["seed"] if has_seed else None
+        if has_seed and not isinstance(config_seeds, list):
+            config_seeds = [config_seeds]
+        repetitions = len(config_seeds) if has_seed else args.num_seed
+        if config["algorithm"]["type"] == "EFC":
+            repetitions = 1
+        if has_seed and len(set(config_seeds[:repetitions])) != repetitions:
+            parser.error(f"{config_path}: seed list must contain unique seeds")
+        planned_configs.append((config_path, config, repetitions, config_seeds))
 
-    run_count = sum(repetitions for _, _, repetitions in planned_configs)
-    if run_count > 2**32:
+    run_count = sum(repetitions for _, _, repetitions, _ in planned_configs)
+    random_count = sum(repetitions for _, _, repetitions, seeds in planned_configs if seeds is None)
+    if random_count > 2**32:
         parser.error("The number of runs exceeds the available unique seeds")
     if args.skip is not None and not 1 <= args.skip <= run_count:
         parser.error(f"--skip must be between 1 and {run_count}")
@@ -312,7 +328,7 @@ def main():
     torch.manual_seed(args.seed)
     # Generate the full sequence so skipping does not change subsequent seeds.
     # Sampling without replacement guarantees distinct, reproducible run seeds.
-    seeds = iter(random.sample(range(2**32), run_count))
+    seeds = iter(random.sample(range(2**32), random_count))
 
     results_dir = project_dir / "results"
     results_dir.mkdir(exist_ok=True)
@@ -328,9 +344,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix="nesy_nids_batch_") as temporary_dir:
         experiments = []
         run_index = 0
-        for config_path, config, repetitions in planned_configs:
-            for _ in range(repetitions):
-                seed = next(seeds)
+        for config_path, config, repetitions, config_seeds in planned_configs:
+            for index in range(repetitions):
+                seed = config_seeds[index] if config_seeds is not None else next(seeds)
                 run_index += 1
                 if run_index <= skip_count:
                     continue
@@ -346,7 +362,7 @@ def main():
                     yaml.safe_dump({**config, "seed": seed}, config_file)
                 experiments.append((run_config, name, seed))
 
-        run_experiments(project_dir, experiments, times_path, args.threads, args.timeout)
+        run_experiments(project_dir, experiments, times_path, args.threads, args.timeout, args.test)
 
 
 if __name__ == "__main__":

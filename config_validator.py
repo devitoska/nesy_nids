@@ -43,7 +43,7 @@ def get_allowed_ad_methods():
     return ["IF", "AE", "VAE"]
 
 def get_allowed_rejection_rates():
-    return [0.001, 0.01, 0.02, 0.05, 0.1, 0.2, "auto"]
+    return [0.001, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,"auto"]
 
 validation_schema = {
   "name": {
@@ -53,8 +53,11 @@ validation_schema = {
     "maxlength": 50
   },
   "seed": {
-    "type": "integer",
-    "min": 0,
+    "anyof": [
+      {"type": "integer", "min": 0, "max": 2**32 - 1},
+      {"type": "list", "empty": False,
+       "schema": {"type": "integer", "min": 0, "max": 2**32 - 1}}
+    ],
     "required": False,
     "default": 42
   },
@@ -195,12 +198,11 @@ validation_schema = {
                 "allowed" : get_allowed_rejection_rates()
             },
             "EVT_rejection_rate": {
-                        "type": "float",
-                        "nullable": True,
-                        "required": False,
-                        "default": None,
-                        "min": 0.001,
-                        "max": 1.0
+                "type": ["float", "string"],
+                "nullable": True,
+                "required": False,
+                "default": 0.01,
+                "allowed" : get_allowed_rejection_rates()
             },
             "calibration_split": {
                 "type": "string",

@@ -102,8 +102,8 @@ def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserve
 
     return transformed_E
 
-def select_youden_threshold(scores, correct, budget_percent=2.5):
-    if budget_percent is not None or not 0<=budget_percent<100:
+def select_youden_threshold(scores, correct, budget_percent=4):
+    if budget_percent is None or not 0<=budget_percent<100:
         raise ValueError('Budget must be a percent from 0 to 99')
     scores=np.asarray(scores,dtype=float)
     correct=np.asarray(correct)
@@ -200,6 +200,9 @@ def finalize_threshold(
     If all samples are correct, use their 95th percentile instead; at least
     one correct sample is required. Ties in Youden's index use the highest cutoff.
     With EVT enabled, this cutoff is the initial tail-fitting boundary.
+    EVT_rejection_rate="auto" uses the fraction of scores above the Youden
+    cutoff as the EVT target, retaining the numeric rejection_rate for tail
+    fitting. The two rates cannot both be "auto"; a zero target is invalid.
 
     Scores must be a nonempty, finite, one-dimensional array. EVT requires
     a target no larger than the observed fraction above the initial threshold.
@@ -220,18 +223,23 @@ def finalize_threshold(
     if scores.ndim != 1 or scores.size == 0 or not np.isfinite(scores).all():
         raise ValueError("Anomaly scores must be a nonempty, finite, one-dimensional array.")
 
+    auto_rejection = isinstance(rejection_rate, str) and rejection_rate == "auto"
+    auto_evt = isinstance(EVT_rejection_rate, str) and EVT_rejection_rate == "auto"
+    if auto_rejection and auto_evt:
+        raise ValueError('rejection_rate and EVT_rejection_rate cannot both be "auto".')
+
     for name, rate in (("rejection_rate", rejection_rate),
                        ("EVT_rejection_rate", EVT_rejection_rate)):
         if name == "EVT_rejection_rate" and rate is None:
             continue
-        if name == "rejection_rate" and isinstance(rate, str) and rate == "auto":
+        if isinstance(rate, str) and rate == "auto":
             continue
         if (isinstance(rate, (bool, np.bool_))
                 or not isinstance(rate, (int, float, np.integer, np.floating))
                 or not np.isfinite(rate) or not 0 < rate < 1):
             raise ValueError(f"{name} must be a finite number strictly between 0 and 1.")
 
-    if isinstance(rejection_rate, str) and rejection_rate == "auto":
+    if auto_rejection or auto_evt:
         correct = np.asarray(correctness_mask)
         if correct.shape != scores.shape or correct.dtype.kind != "b":
             raise ValueError("Youden threshold requires a Boolean correctness_mask aligned with anomaly_scores.")
@@ -242,8 +250,12 @@ def finalize_threshold(
         if not n_incorrect:
             threshold = float(np.percentile(scores[correct], 95))
         else:
-            threshold = select_youden_threshold(scores, correct, budget_percent=2.5)
-    else:
+            threshold = select_youden_threshold(scores, correct, budget_percent=4)
+        if auto_evt:
+            EVT_rejection_rate = select_youden_threshold(scores, correct, budget_percent=4)
+            if EVT_rejection_rate == 0:
+                raise ValueError("Youden selection produced a zero EVT_rejection_rate; EVT requires a positive target.")
+    if not auto_rejection:
         threshold = float(np.percentile(scores, 100 * (1 - rejection_rate)))
     if not np.isfinite(threshold):
         raise ValueError("The empirical threshold is not finite.")

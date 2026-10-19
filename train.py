@@ -41,7 +41,7 @@ if __name__ == "__main__":
         parser.add_argument('--data_path', type=str, help='Override dataset_path from the config')
         parser.add_argument('--name', type=str, required=False, help='Name of the experiment', default=None)
         parser.add_argument('--exp_path', type=str, required=False, help='Path to the experiment')
-        parser.add_argument('--seed', type=int, required=False, help='Random seed for reproducibility', default=42)
+        parser.add_argument('--seed', type=int, required=False, help='Fallback seed; config seed (or first listed seed) takes precedence', default=42)
         parser.add_argument('--no_ad', action='store_true', help='Flag to skip training the anomaly detection model')
         args = parser.parse_args()
 
@@ -72,6 +72,10 @@ if __name__ == "__main__":
         if config["algorithm"]["type"] != "NeSy-NIDS":
             raise ValueError("train.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN")
         seed = config.get("seed", args.seed)
+        if isinstance(seed, list):
+            # This entrypoint trains one run; run_batch.py expands seed lists.
+            seed = seed[0]
+            config["seed"] = seed
         experiment_dir = os.path.join("results", exp_name)
         timing_path = os.path.join(experiment_dir, "timings.json")
         with record_stage_time(experiment_dir, "train") as timings:
