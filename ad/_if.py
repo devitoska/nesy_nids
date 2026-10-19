@@ -1,4 +1,5 @@
 import pickle
+import numpy as np
 from sklearn.ensemble import IsolationForest
 
 class IF:
@@ -20,26 +21,31 @@ class IF:
 
     @staticmethod
     def test(models, data, gts, preds, unknown_cls):
-        y_gt_bin = []
-        y_pred_bin = []
-        y_gt_mul = []
-        y_pred_mul = []
-        ad_scores = []
+        """Score each predicted class together and return lists in input order."""
+        data = np.asarray(data)
+        gts = np.asarray(gts)
+        preds = np.asarray(preds)
+        if data.ndim != 2:
+            raise ValueError("Test data must have shape (samples, features).")
+        if gts.shape != (len(data),) or preds.shape != (len(data),):
+            raise ValueError("gts and preds must contain one label per test sample.")
 
-        # for each data in test
-        for i in range(data.shape[0]):
-            x = data[i].reshape(1, -1)
-            gt = gts[i]
-            pred = preds[i]
+        y_gt_bin = (gts == unknown_cls).astype(int)
+        y_pred_bin = np.empty(len(data), dtype=int)
+        y_pred_mul = preds.astype(object)
+        ad_scores = np.empty(len(data), dtype=float)
 
-            y_gt_mul.append(gt)
-            y_gt_bin.append(1 if gt == unknown_cls else 0)
+        for pred in np.unique(preds):
+            indices = np.flatnonzero(preds == pred)
+            scores = models[pred].model.decision_function(data[indices])
+            # IsolationForest.predict rejects negative decision scores. Reuse
+            # these scores instead of traversing the forest a second time.
+            rejected = scores < 0
+            ad_scores[indices] = scores
+            y_pred_bin[indices] = rejected.astype(int)
+            y_pred_mul[indices[rejected]] = unknown_cls
 
-            out = models[pred].model.predict(x)
-            anomaly_score = models[pred].model.decision_function(x)
-
-            y_pred_bin.append(1 if out[0] == -1 else 0)
-            y_pred_mul.append(unknown_cls if out[0] == -1 else pred)
-            ad_scores.append(anomaly_score[0])
-
-        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores
+        return (
+            y_gt_bin.tolist(), y_pred_bin.tolist(), gts.tolist(),
+            y_pred_mul.tolist(), ad_scores.tolist(),
+        )

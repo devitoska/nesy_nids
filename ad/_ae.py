@@ -202,52 +202,38 @@ class AE:
 
     @staticmethod
     def test(models, data, gts, preds, unknown_cls):
+        """Score each predicted class together and return lists in input order."""
         data = torch.tensor(data, dtype=torch.float32)
-        
-        y_gt_bin = []
-        y_pred_bin = []
-        y_gt_mul = []
-        y_pred_mul = []
-        ad_scores = []
+        gts = np.asarray(gts)
+        preds = np.asarray(preds)
+        if data.ndim != 2:
+            raise ValueError("Test data must have shape (samples, features).")
+        if gts.shape != (len(data),) or preds.shape != (len(data),):
+            raise ValueError("gts and preds must contain one label per test sample.")
+
+        y_gt_bin = (gts == unknown_cls).astype(int)
+        y_pred_bin = np.empty(len(data), dtype=int)
+        # Object dtype accommodates an unknown label longer than known labels.
+        y_pred_mul = preds.astype(object)
+        ad_scores = np.empty(len(data), dtype=float)
 
         with torch.no_grad():
-            # for each data in test
-            for i in range(data.shape[0]):
-                x = data[i].unsqueeze(0)
-                gt = gts[i]
-                pred = preds[i]
+            for pred in np.unique(preds):
+                indices = np.flatnonzero(preds == pred)
+                detector = models[pred]
+                # Integer row indexing preserves (1, features) for singleton groups.
+                x = data[torch.from_numpy(indices)].to(next(detector.model.parameters()).device)
+                x_recon = detector.model(x)
+                scores = calc_anomaly_score(
+                    x, x_recon, score=detector.score,
+                    residual_mean=detector.residual_mean, residual_cov=detector.residual_cov,
+                )
+                rejected = scores > detector.threshold
+                ad_scores[indices] = scores
+                y_pred_bin[indices] = rejected.astype(int)
+                y_pred_mul[indices[rejected]] = unknown_cls
 
-                y_gt_mul.append(gt)
-                y_gt_bin.append(1 if gt == unknown_cls else 0)
-
-                x = x.to(next(models[pred].model.parameters()).device)
-                x_recon = models[pred].model(x)
-                anomaly_score = calc_anomaly_score(x, x_recon, score=models[pred].score, 
-                                                   residual_mean=models[pred].residual_mean, residual_cov=models[pred].residual_cov)
-                ad_scores.append(anomaly_score.item())
-
-                if anomaly_score > models[pred].threshold:
-                    y_pred_bin.append(1)
-                    y_pred_mul.append(unknown_cls)
-                else:
-                    y_pred_bin.append(0)
-                    y_pred_mul.append(pred)
-        
-        return y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores
-
-    @staticmethod
-    def get_anomaly_scores(models, data, preds):
-        data = torch.tensor(data, dtype=torch.float32)
-        anomaly_scores = []
-        with torch.no_grad():
-            # for each data in test
-            for i in range(data.shape[0]):
-                x = data[i].unsqueeze(0)
-                pred = preds[i]
-                x = x.to(next(models[pred].model.parameters()).device)
-                x_recon = models[pred].model(x)
-                anomaly_score = calc_anomaly_score(x, x_recon, score=models[pred].score,
-                                                   residual_mean=models[pred].residual_mean, residual_cov=models[pred].residual_cov)
-                anomaly_scores.append(anomaly_score.item())
-        
-        return anomaly_scores
+        return (
+            y_gt_bin.tolist(), y_pred_bin.tolist(), gts.tolist(),
+            y_pred_mul.tolist(), ad_scores.tolist(),
+        )
