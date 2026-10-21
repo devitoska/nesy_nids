@@ -1,14 +1,14 @@
 import os
 import torch
 import pickle
-from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score, precision_recall_curve, auc, recall_score
+from sklearn.metrics import confusion_matrix, classification_report, roc_curve, roc_auc_score, precision_recall_curve, auc, recall_score
 import json
 import logging
+import numpy as np
 
 from bn.utils import load_bn
 from ad._if import IF
 from ad._ae import AE
-from ad._vae import VAE
 from ad.utils import transform_explanations
  
 def test_ad(exp_name, config):
@@ -23,8 +23,6 @@ def test_ad(exp_name, config):
         model_cls = IF
     elif config["method"] == "AE":
         model_cls = AE
-    elif config["method"] == "VAE":
-        model_cls = VAE
 
     loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)
@@ -75,12 +73,15 @@ def test_ad(exp_name, config):
         y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores = model_cls.test(ad_models, X_test, gts, preds, unknown_cls)
 
         pr, rc, _ = precision_recall_curve(y_gt_bin, ad_scores)
+        fpr, tpr, _ = roc_curve(y_gt_bin, ad_scores)
 
         # save results
         metrics = {
             "roc_auc_score": roc_auc_score(y_gt_bin, ad_scores),
             "auc_score": auc(rc, pr),
+            "tpr" : recall_score(y_gt_bin, y_pred_bin, pos_label=1),
             "fpr" : 1 - recall_score(y_gt_bin, y_pred_bin, pos_label=0),
+            "fpr_at_95_tpr":  float(fpr[np.flatnonzero(tpr >= 0.95)[0]]),
             "classification_report_binary": classification_report(y_gt_bin, y_pred_bin, output_dict=True),
             "confusion_matrix_multiclass": confusion_matrix(y_gt_mul, y_pred_mul).tolist(),
             "classification_report_multiclass": classification_report(y_gt_mul, y_pred_mul, output_dict=True)

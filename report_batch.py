@@ -1,34 +1,3 @@
-"""Summarize runs named <config>_<seed>: python report_batch.py results.
-
-The independent observations are seeds, not held-out attack classes. Standard
-deviations use ddof=1; 95% confidence intervals use Student's t distribution.
-For the known [0, 1] metrics, intervals are intersected with [0, 1]. This
-restriction preserves coverage of a bounded mean but does not fix the t
-approximation with few or non-normal seed results. Count intervals are unbounded.
-For one seed, uncertainty is undefined and is written as empty CSV cells.
-
-Also writes recall_precision_f1_unknown.png (unknown recall/precision/F1),
-bin_multi_f1.png (weighted binary/multiclass F1), auroc_auprc.png (AUROC/AUPRC), and
-unknown_mis.png (unknown misclassification counts). Figure cells show
-mean and ± sample SD. Metric plots use a superscript ? for SD > 0.1 in
-original units (10 percentage points). Count means are rounded to integers
-for display and never have superscripts. Yellow bold marks row maxima for
-metrics and column minima for counts, including ties before display rounding.
-If an efc/ subfolder exists, include its fixed baseline in every comparison
-and write metrics_efc.csv and unknown_mis_efc.csv with values only (no SD/CI).
-When times exists, also writes train_times.png and test_times.png: one bar per
-config, averaged across seeds, with integer-second means and subscript sample SD.
-NeSy training bars stack BN, explanations, AD, and remaining overhead; phase
-statistics appear below the bars. EFC uses its last recorded run without SD.
-Repeated timing rows for the same experiment use the last record. Missing timing
-rows for evaluated seeded configs are errors; a legacy efc/ baseline without a
-row is omitted from timing plots. Without times, existing metric plots still run.
-Use --no-plots for CSV only.
-Comparison labels use separate lines for explanation type, AD method, and seed
-count. AE labels additionally show loss and score@rejection_rate, followed by
-@EVT_<EVT_rejection_rate> only when configured. Defaults match training.
-"""
-
 import argparse
 import json
 from pathlib import Path
@@ -48,6 +17,7 @@ METRIC_PATHS = {
     "recall_pos": ("classification_report_binary", "1", "recall"),
     "prec_pos": ("classification_report_binary", "1", "precision"),
     "fpr": ("fpr",),
+    "fpr_at_95_tpr": ("fpr_at_95_tpr",),
     "f1_pos": ("classification_report_binary", "1", "f1-score"),
     "macro_f1_bin": ("classification_report_binary", "macro avg", "f1-score"),
     "avg_f1_bin": ("classification_report_binary", "weighted avg", "f1-score"),
@@ -59,10 +29,21 @@ PLOT_METRICS = (
     ("recall_pos", "Unknown-class recall (%)"),
     ("prec_pos", "Unknown-class precision (%)"),
     ("f1_pos", "Unknown-class F1 (%)"),
+    ("fpr", "FPR (%)"),
     ("avg_f1_bin", "Weighted binary F1 (%)"),
     ("avg_f1_multi", "Weighted multiclass F1 (%)"),
+    ("fpr_at_95_tpr", "FPR@95 (%)"),
     ("auroc", "AUROC (%)"),
     ("aupr", "AUPRC (%)"),
+)
+SUMMARY_METRICS = (
+    ("recall_pos", "Recall (↑)"),
+    ("prec_pos", "Precision (↑)"),
+    ("f1_pos", "F1-score (↑)"),
+    ("fpr", "FPR (↓)"),
+    ("fpr_at_95_tpr", "FPR@95 (↓)"),
+    ("auroc", "AUROC (↑)"),
+    ("aupr", "AUPRC (↑)"),
 )
 
 
@@ -91,12 +72,22 @@ def read_metrics(experiment, results):
         for unknown, result in results.items():
             row = {}
             for metric, keys in METRIC_PATHS.items():
+                # Historical evaluations may lack this metric. Keep CSV-only
+                # reports usable; plotting will report the missing metric.
+                if metric == "fpr_at_95_tpr" and metric not in result:
+                    continue
                 value = result
                 for key in keys:
                     value = value[key]
                 row[metric] = value
             rows[unknown] = row
         table = pd.DataFrame.from_dict(rows, orient="index")
+    # Existing table.csv files omit FPR@95 even when results.json contains it.
+    if "fpr_at_95_tpr" not in table and any("fpr_at_95_tpr" in result for result in results.values()):
+        table["fpr_at_95_tpr"] = pd.Series({
+            unknown: result.get("fpr_at_95_tpr", np.nan)
+            for unknown, result in results.items()
+        })
     if table.index.has_duplicates or table.empty or not len(table.columns):
         raise ValueError(f"{experiment}: empty metric table or duplicate attack rows")
     if set(table.index) != set(results):
@@ -297,7 +288,8 @@ def build_comparison(groups, reports):
     return comparison
 
 
-def draw_heatmap(ax, means, stds, row_labels, column_labels, *, percentages, show_std=None):
+def draw_heatmap(ax, means, stds, row_labels, column_labels, *, percentages, show_std=None,
+                 lower_is_better=False, highlight_axis=None, average_row=True):
     """Draw annotated mean cells; SD and its flag always use original units."""
     import matplotlib.patheffects as path_effects
 
@@ -313,7 +305,15 @@ def draw_heatmap(ax, means, stds, row_labels, column_labels, *, percentages, sho
     ax.tick_params(axis="both", length=0, pad=9)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    best = means.max(axis=1, keepdims=True) if percentages else means.min(axis=0, keepdims=True)
+    if highlight_axis is None:
+        highlight_axis = 1 if percentages else 0
+    # A per-column direction mask supports summaries containing both error
+    # rates (lower is better) and performance metrics (higher is better).
+    best = np.where(
+        lower_is_better if percentages else True,
+        means.min(axis=highlight_axis, keepdims=True),
+        means.max(axis=highlight_axis, keepdims=True),
+    )
     highlights = np.isclose(means, best, rtol=0, atol=1e-12)
     for row, column in np.ndindex(means.shape):
         mean, std = means[row, column], stds[row, column]
@@ -348,9 +348,47 @@ def draw_heatmap(ax, means, stds, row_labels, column_labels, *, percentages, sho
         if show_std[row, column]:
             ax.text(column, row + 0.23, f"± {std_text}", ha="center", va="center",
                     fontsize=8.5, color=color, path_effects=effects)
-    if percentages:
+    if percentages and average_row:
         ax.axhline(len(row_labels) - 1.5, color="#536273", linewidth=1.2)
         ax.get_yticklabels()[-1].set_fontweight("bold")
+
+
+def summary_figure(comparison):
+    """Compare groups using the existing within-seed Average statistics."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    metrics = [metric for metric, _ in SUMMARY_METRICS]
+    means = np.stack([item["means"].loc["Average", metrics].to_numpy() for item in comparison])
+    stds = np.stack([item["stds"].loc["Average", metrics].to_numpy() for item in comparison])
+    labels = [
+        item["label"] if item["baseline"]
+        else f"{item['name']}\n{item['label']}\n(n={item['n']})"
+        for item in comparison
+    ]
+    show_std = np.array([not item["baseline"] for item in comparison])[:, None]
+    label_width = max(len(line) for label in labels for line in label.splitlines()) * 0.09 + 0.3
+    width = max(16, label_width + 12)
+    figure = Figure(figsize=(width, max(5, len(comparison) * 1.2 + 2)), dpi=160)
+    FigureCanvasAgg(figure)
+    ax = figure.subplots()
+    figure.subplots_adjust(left=label_width / width, right=0.99, top=0.86, bottom=0.2)
+    draw_heatmap(
+        ax, means, stds, labels, [title for _, title in SUMMARY_METRICS],
+        percentages=True, show_std=show_std, highlight_axis=0, average_row=False,
+        lower_is_better=[metric.startswith("fpr") for metric in metrics],
+    )
+    ax.tick_params(axis="x", labelrotation=0)
+    figure.suptitle("Summary across held-out attacks", fontsize=21, fontweight="bold", y=0.97)
+    baseline_note = " EFC: single evaluation, no SD." if not show_std.all() else ""
+    figure.text(
+        0.5, 0.035,
+        "Cells: mean (%) and ± sample SD (percentage points) of each seed's equal-weight mean across held-out attacks."
+        + baseline_note + "\n"
+        "Yellow bold: column best, including ties (minimum FPR@95, maximum otherwise). Superscript ?: SD > 10 percentage points.",
+        ha="center", fontsize=10, color="#555555", linespacing=1.6,
+    )
+    return figure
 
 
 def comparison_figures(comparison):
@@ -366,27 +404,34 @@ def comparison_figures(comparison):
     # Reserve space for the longer, multiline configuration labels.
     label_width = max(len(line) for label in labels for line in label.splitlines()) * 0.09
     figures = []
-    for filename, panels in (("recall_precision_f1_unknown.png", PLOT_METRICS[:3]),
-                             ("bin_multi_f1.png", PLOT_METRICS[3:5]),
-                             ("auroc_auprc.png", PLOT_METRICS[5:])):
-        width = len(panels) * max(7, len(comparison) * max(1.4, label_width) + 1.8)
-        figure = Figure(figsize=(width, max(8, len(rows) * 0.66 + 2)), dpi=160)
+    for filename, panels, grid_rows, grid_columns in (
+        ("rec_prec_f1_fpr.png", PLOT_METRICS[:4], 2, 2),
+        ("bin_multi_f1.png", PLOT_METRICS[4:6], 1, 2),
+        ("fpr@95_auroc_auprc.png", PLOT_METRICS[6:], 1, 3),
+    ):
+        width = grid_columns * max(7, len(comparison) * max(1.4, label_width) + 1.8)
+        height = grid_rows * max(8, len(rows) * 0.66 + 2)
+        figure = Figure(figsize=(width, height), dpi=160)
         FigureCanvasAgg(figure)
-        axes = figure.subplots(1, len(panels), squeeze=False)[0]
-        figure.subplots_adjust(left=0.075, right=0.99, top=0.82, bottom=0.24, wspace=0.36)
+        axes = figure.subplots(grid_rows, grid_columns, squeeze=False).flat
+        figure.subplots_adjust(left=0.075, right=0.99,
+                               top=0.91 if grid_rows > 1 else 0.82,
+                               bottom=0.12 if grid_rows > 1 else 0.24,
+                               wspace=0.36, hspace=0.65)
         title = "Explanation representations" + (" and EFC" if not show_std.all() else "")
         figure.suptitle(f"{title}: {len(rows) - 1} held-out attacks",
                        fontsize=21, fontweight="bold", y=0.98)
         for ax, (metric, title) in zip(axes, panels):
             means = np.column_stack([item["means"][metric] for item in comparison])
             stds = np.column_stack([item["stds"][metric] for item in comparison])
-            draw_heatmap(ax, means, stds, rows, labels, percentages=True, show_std=show_std)
+            draw_heatmap(ax, means, stds, rows, labels, percentages=True, show_std=show_std,
+                         lower_is_better=(metric in {"fpr", "fpr_at_95_tpr"}))
             ax.set_title(title, fontsize=16, fontweight="bold", pad=20)
         '''
         figure.text(0.5, 0.04,
                     "Cells: mean (%) and ± SD (percentage points). Superscript ?: SD > 10 percentage points."
                     + baseline_note + "\n"
-                    "Average: equal-weight mean across held-out attacks within each seed. Yellow bold: row maximum, including ties, before rounding.",
+                    "Average: equal-weight mean across held-out attacks within each seed. Yellow bold: row best (minimum FPR/FPR@95, maximum otherwise), including ties, before rounding.",
                     ha="center", fontsize=10, color="#555555", linespacing=1.6)
         '''
         figures.append((filename, figure))
@@ -409,6 +454,7 @@ def comparison_figures(comparison):
                 "attack = sum of attack-class columns; total = normal + attack. Correct unknown detections excluded. Yellow bold: column minimum, including ties.",
                 ha="center", fontsize=10, color="#555555", linespacing=1.6)
     figures.append(("unknown_mis.png", figure))
+    figures.append(("summary.png", summary_figure(comparison)))
     return figures
 
 

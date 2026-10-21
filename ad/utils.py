@@ -3,43 +3,6 @@ import numpy as np
 import torch
 from scipy.stats import genpareto
 
-def plot_losses(train_losses, val_losses, 
-                train_recon_losses, val_recon_losses, 
-                train_kl_losses, val_kl_losses, dir, class_name):
-
-    # Plot total loss (train and validation)
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss')
-    plt.legend()
-    plt.savefig(f'{dir}/loss_plot_{class_name}.png')
-    plt.close()
-
-    # Plot reconstruction loss (train and validation)
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_recon_losses, label='Train Reconstruction Loss')
-    plt.plot(val_recon_losses, label='Validation Reconstruction Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Reconstruction Loss')
-    plt.title('Training and Validation Reconstruction Loss')
-    plt.legend()
-    plt.savefig(f'{dir}/recon_loss_plot_{class_name}.png')
-    plt.close()
-
-    # Plot KL divergence loss (train and validation)
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_kl_losses, label='Train KL Divergence Loss')
-    plt.plot(val_kl_losses, label='Validation KL Divergence Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('KL Divergence Loss')
-    plt.title('Training and Validation KL Divergence Loss')
-    plt.legend()
-    plt.savefig(f'{dir}/kl_loss_plot_{class_name}.png')
-    plt.close()
-
 def transform_explanations(E : np.ndarray, type: int = 1, scaler=None, unobserved=False, mode='train') -> np.ndarray:
     """
     Transform the explanations into a suitable format for training the anomaly detection model.
@@ -184,34 +147,73 @@ def calc_anomaly_score(
     return scores.detach().cpu().numpy()
 
 
+def EVT_cutoff(scores, threshold, EVT_rejection_rate, min_exceedances):
+
+    eps = 1e-6  # Small constant
+    
+    with np.errstate(over="ignore", invalid="ignore"):
+        # Compute the exceedances above the initial threshold
+        exceedances = scores[scores > threshold] - threshold
+        num_exceedances = exceedances.size
+
+        if num_exceedances == 0:
+            raise ValueError("EVT cannot be fitted: no scores exceed the initial threshold.")
+        if not np.isfinite(exceedances).all():
+            raise ValueError("EVT excesses are not finite; check score magnitudes.")
+    
+        tail_fraction = num_exceedances / scores.size
+
+        if EVT_rejection_rate - tail_fraction > eps:
+            try:
+                raise ValueError(
+                    f"EVT_rejection_rate ({EVT_rejection_rate:g}) exceeds the observed "
+                    f"tail fraction ({tail_fraction:g}). Lower the target rate, select "
+                    "a lower initial threshold, or use an empirical percentile instead."
+                )
+            except ValueError as exc:
+                print("Defaulting to empirical threshold due to EVT target exceeding observed tail fraction.")
+                return threshold, None
+                
+        if abs(EVT_rejection_rate - tail_fraction) <= eps:
+            return threshold, None
+        
+        if num_exceedances < min_exceedances:
+            raise ValueError(
+                f"EVT requires at least {min_exceedances} exceedances; "
+                f"only {num_exceedances} are available."
+            )
+        if np.all(exceedances == exceedances[0]):
+            raise ValueError("EVT cannot be fitted to identical excesses.")
+    
+        try:
+            shape, location, scale = genpareto.fit(exceedances, floc=0)
+        except (ValueError, RuntimeError, FloatingPointError, OverflowError) as exc:
+            raise ValueError("Failed to fit the generalized Pareto tail model.") from exc
+        if (not np.isfinite([shape, location, scale]).all()
+                or location != 0 or scale <= 0):
+            raise ValueError("The fitted GPD has invalid shape, location, or scale parameters.")
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            log_density = genpareto.logpdf(exceedances, c=shape, loc=0, scale=scale)
+        if not np.isfinite(log_density).all():
+            raise ValueError("The fitted GPD does not give finite density to all excesses.")
+    
+        # Convert the overall rejection target to a conditional tail probability.
+        # isf handles both zero shape (the exponential limit) and near-zero shape.
+        with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
+            excess_cutoff = genpareto.isf(
+                EVT_rejection_rate / tail_fraction, c=shape, loc=0, scale=scale,
+            )
+            final_threshold = threshold + excess_cutoff
+        if not np.isfinite(final_threshold) or final_threshold <= threshold:
+            raise ValueError("The fitted GPD did not produce a finite cutoff above the initial threshold.")
+        
+        return float(final_threshold), num_exceedances
+
 def finalize_threshold(
     anomaly_scores, rejection_rate, EVT_rejection_rate=None, *, min_exceedances=2,
-    correctness_mask=None,
-):
-    """Return an empirical cutoff or a peaks-over-threshold EVT cutoff.
+    correctness_mask=None):
 
-    Without EVT, rejection_rate specifies the empirical upper-tail fraction.
-    With EVT, it selects the initial tail-fitting threshold; EVT_rejection_rate
-    specifies the target rejection probability over the entire reference
-    distribution. Numeric rates must be strictly between zero and one.
-    rejection_rate="auto" selects the cutoff maximizing Youden's index for
-    rejecting incorrect assignments (score > cutoff). correctness_mask must
-    contain one Boolean per score: True for correct, False for incorrect.
-    If all samples are correct, use their 95th percentile instead; at least
-    one correct sample is required. Ties in Youden's index use the highest cutoff.
-    With EVT enabled, this cutoff is the initial tail-fitting boundary.
-    EVT_rejection_rate="auto" uses the fraction of scores above the Youden
-    cutoff as the EVT target, retaining the numeric rejection_rate for tail
-    fitting. The two rates cannot both be "auto"; a zero target is invalid.
-
-    Scores must be a nonempty, finite, one-dimensional array. EVT requires
-    a target no larger than the observed fraction above the initial threshold.
-    Equality returns that threshold without fitting. Otherwise, a GPD is fit
-    to positive excesses with its location fixed at zero. min_exceedances is
-    a configurable sample-size safeguard, not a guarantee of tail-fit quality.
-    Invalid data, unsupported targets, and failed fits raise ValueError;
-    there is no automatic fallback to empirical thresholding.
-    """
+    # validate anomaly_scores
     try:
         num_exceedances = None
         scores = np.asarray(anomaly_scores)
@@ -223,8 +225,16 @@ def finalize_threshold(
     if scores.ndim != 1 or scores.size == 0 or not np.isfinite(scores).all():
         raise ValueError("Anomaly scores must be a nonempty, finite, one-dimensional array.")
 
+    # validate min_exceedances
+    if (isinstance(min_exceedances, (bool, np.bool_))
+                or not isinstance(min_exceedances, (int, np.integer))
+                or min_exceedances < 2):
+        raise ValueError("min_exceedances must be an integer of at least 2.")
+
+    # validate rejection rate and EVT rejection rate
     auto_rejection = isinstance(rejection_rate, str) and rejection_rate == "auto"
     auto_evt = isinstance(EVT_rejection_rate, str) and EVT_rejection_rate == "auto"
+    
     if auto_rejection and auto_evt:
         raise ValueError('rejection_rate and EVT_rejection_rate cannot both be "auto".')
 
@@ -239,84 +249,40 @@ def finalize_threshold(
                 or not np.isfinite(rate) or not 0 < rate < 1):
             raise ValueError(f"{name} must be a finite number strictly between 0 and 1.")
 
-    if auto_rejection or auto_evt:
-        correct = np.asarray(correctness_mask)
-        if correct.shape != scores.shape or correct.dtype.kind != "b":
-            raise ValueError("Youden threshold requires a Boolean correctness_mask aligned with anomaly_scores.")
+    # compute threshold with Youden's index if requested ("auto"), otherwise use empirical percentile
+    correct = np.asarray(correctness_mask)
+    if auto_rejection:
         n_correct = int(correct.sum())
         n_incorrect = scores.size - n_correct
+        
+        if correct.shape != scores.shape or correct.dtype.kind != "b":
+            raise ValueError("Youden threshold requires a Boolean correctness_mask aligned with anomaly_scores.")
         if not n_correct:
             raise ValueError("Youden threshold requires at least one correct calibration sample.")
+        # default to the 95th percentile of correct scores if there are no incorrect samples
         if not n_incorrect:
             threshold = float(np.percentile(scores[correct], 95))
         else:
             threshold = select_youden_threshold(scores, correct, budget_percent=4)
-        if auto_evt:
-            EVT_rejection_rate = select_youden_threshold(scores, correct, budget_percent=4)
-            if EVT_rejection_rate == 0:
-                raise ValueError("Youden selection produced a zero EVT_rejection_rate; EVT requires a positive target.")
-    if not auto_rejection:
+    else:
         threshold = float(np.percentile(scores, 100 * (1 - rejection_rate)))
+
+    # validate threshold   
     if not np.isfinite(threshold):
         raise ValueError("The empirical threshold is not finite.")
-    if EVT_rejection_rate is None:
-        return threshold, num_exceedances
 
-    if (isinstance(min_exceedances, (bool, np.bool_))
-            or not isinstance(min_exceedances, (int, np.integer))
-            or min_exceedances < 2):
-        raise ValueError("min_exceedances must be an integer of at least 2.")
-
-    with np.errstate(over="ignore", invalid="ignore"):
-        exceedances = scores[scores > threshold] - threshold
-    if exceedances.size == 0:
-        raise ValueError("EVT cannot be fitted: no scores exceed the initial threshold.")
-    if not np.isfinite(exceedances).all():
-        raise ValueError("EVT excesses are not finite; check score magnitudes.")
-
-    tail_fraction = exceedances.size / scores.size
-    if EVT_rejection_rate > tail_fraction:
-        try:
-            raise ValueError(
-                f"EVT_rejection_rate ({EVT_rejection_rate:g}) exceeds the observed "
-                f"tail fraction ({tail_fraction:g}). Lower the target rate, select "
-                "a lower initial threshold, or use an empirical percentile instead."
-            )
-        except ValueError as exc:
-            print("Defaulting to empirical threshold due to EVT target exceeding observed tail fraction.")
-            return threshold, num_exceedances
-            
-    if EVT_rejection_rate == tail_fraction:
-        return threshold, num_exceedances
-    if exceedances.size < min_exceedances:
-        num_exceedances = exceedances.size
-        raise ValueError(
-            f"EVT requires at least {min_exceedances} exceedances; "
-            f"only {exceedances.size} are available."
-        )
-    if np.all(exceedances == exceedances[0]):
-        raise ValueError("EVT cannot be fitted to identical excesses.")
-
-    try:
-        shape, location, scale = genpareto.fit(exceedances, floc=0)
-    except (ValueError, RuntimeError, FloatingPointError, OverflowError) as exc:
-        raise ValueError("Failed to fit the generalized Pareto tail model.") from exc
-    if (not np.isfinite([shape, location, scale]).all()
-            or location != 0 or scale <= 0):
-        raise ValueError("The fitted GPD has invalid shape, location, or scale parameters.")
-    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
-        log_density = genpareto.logpdf(exceedances, c=shape, loc=0, scale=scale)
-    if not np.isfinite(log_density).all():
-        raise ValueError("The fitted GPD does not give finite density to all excesses.")
-
-    # Convert the overall rejection target to a conditional tail probability.
-    # isf handles both zero shape (the exponential limit) and near-zero shape.
-    with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
-        excess_cutoff = genpareto.isf(
-            EVT_rejection_rate / tail_fraction, c=shape, loc=0, scale=scale,
-        )
-        final_threshold = threshold + excess_cutoff
-    if not np.isfinite(final_threshold) or final_threshold <= threshold:
-        raise ValueError("The fitted GPD did not produce a finite cutoff above the initial threshold.")
-    
-    return float(final_threshold), num_exceedances
+    # compute EVT cutoff if requested, recalculating the threshold and number of exceedances
+    if EVT_rejection_rate is not None:
+        
+        # default to Youden's index threshold if EVT rejection_rate is "auto"
+        if EVT_rejection_rate == "auto":
+            EVT_threshold = select_youden_threshold(scores, correct, budget_percent=4)
+            # convert to an empirical percentile for EVT fitting
+            EVT_rejection_rate = float(np.sum(scores > EVT_threshold)) / float(scores.size)
+            # default to the 95th percentile of correct scores if there are no incorrect samples
+            if EVT_rejection_rate == 0:
+                EVT_rejection_rate = 0.05
+        
+        threshold, num_exceedances = EVT_cutoff(scores, threshold, EVT_rejection_rate, min_exceedances)
+        
+    return threshold, num_exceedances

@@ -222,6 +222,9 @@ class AE:
         y_pred_mul = preds.astype(object)
         ad_scores = np.empty(len(data), dtype=float)
 
+        atol = 1e-2
+        rtol = 1e-3
+
         with torch.no_grad():
             for pred in np.unique(preds):
                 indices = np.flatnonzero(preds == pred)
@@ -233,7 +236,10 @@ class AE:
                     x, x_recon, score=detector.score,
                     residual_mean=detector.residual_mean, residual_cov=detector.residual_cov,
                 )
-                rejected = scores > detector.threshold
+                threshold = detector.threshold
+                tolerance = 0
+                #tolerance = atol + rtol * abs(threshold)
+                rejected = scores > threshold + tolerance
                 ad_scores[indices] = scores
                 y_pred_bin[indices] = rejected.astype(int)
                 y_pred_mul[indices[rejected]] = unknown_cls

@@ -10,7 +10,6 @@ from sklearn.preprocessing import RobustScaler
 from bn.utils import load_bn
 from ad._if import IF
 from ad._ae import AE
-from ad._vae import VAE
 from ad.utils import transform_explanations
  
 def train_ad(exp_name, config, seed):
@@ -28,8 +27,6 @@ def train_ad(exp_name, config, seed):
         model_cls = IF
     elif config["method"] == "AE":
         model_cls = AE
-    elif config["method"] == "VAE":
-        model_cls = VAE
 
     loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)

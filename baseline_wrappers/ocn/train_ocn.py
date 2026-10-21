@@ -25,7 +25,7 @@ import pandas as pd
 import torch
 
 if __package__:
-    from . import utils_ocn as utils
+    from .. import utils_ocn as utils
 else:
     import utils_ocn as utils
 

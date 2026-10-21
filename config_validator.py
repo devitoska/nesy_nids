@@ -40,7 +40,7 @@ def get_allowed_prior_types():
     return ["BDeu", "dirichlet", "K2"]
 
 def get_allowed_ad_methods():
-    return ["IF", "AE", "VAE"]
+    return ["IF", "AE"]
 
 def get_allowed_rejection_rates():
     return [0.001, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5,"auto"]

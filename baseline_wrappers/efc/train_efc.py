@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 
 if __package__:
-    from .utils_baselines import DEFAULT_DATA_DIR, discover_classes, record_stage_time
+    from ..utils_baselines import DEFAULT_DATA_DIR, discover_classes, record_stage_time
 else:
     from utils_baselines import DEFAULT_DATA_DIR, discover_classes, record_stage_time
 
