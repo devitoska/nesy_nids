@@ -31,7 +31,7 @@ if __name__ == "__main__":
             config["dataset_path"] = args.data_path
         config = validate_config(config)
         if config["algorithm"]["type"] != "NeSy-NIDS":
-            raise ValueError("test.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN")
+            raise ValueError("test.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN/CLOSR")
 
         with record_stage_time(path_to_exp, "test"):
             # Create explanation vectors for Test partition

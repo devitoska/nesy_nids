@@ -1,6 +1,6 @@
 """Evaluate OCN checkpoints using the EFC wrapper's metrics and output schema.
 
-Run: python baseline_wrappers/test_ocn.py
+Run: python baseline_wrappers/ocn/test_ocn.py
 Inputs: no_<attack>/test_raw_data.csv and results/ocn/ocn/ocn_no_<attack>.pt.
 Outputs: results/ocn/metrics/no_<attack>/results.json and metrics/table.csv.
 Unknown means the held-out attack, including for the binary metrics.
@@ -8,6 +8,7 @@ Only version 2 checkpoints with the unpadded 1D backbone are supported.
 """
 
 import argparse
+import sys
 import json
 from pathlib import Path
 
@@ -19,9 +20,10 @@ from sklearn.metrics import (
 import torch
 
 if __package__:
-    from .. import utils_ocn as utils
+    from . import utils_ocn as utils
 else:
-    import utils_ocn as utils
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import baseline_wrappers.ocn.utils_ocn as utils
 
 
 def evaluate_partition(ocn, unknown_class, args):

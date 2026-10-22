@@ -70,7 +70,7 @@ if __name__ == "__main__":
             config["dataset_path"] = args.data_path
         config = validate_config(config)
         if config["algorithm"]["type"] != "NeSy-NIDS":
-            raise ValueError("train.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN")
+            raise ValueError("train.py supports NeSy-NIDS; use run_batch.py or the baseline wrappers for EFC/OCN/CLOSR")
         seed = config.get("seed", args.seed)
         if isinstance(seed, list):
             # This entrypoint trains one run; run_batch.py expands seed lists.

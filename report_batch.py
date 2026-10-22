@@ -266,7 +266,7 @@ def build_comparison(groups, reports):
         anomaly_detection = algorithm.get("anomaly_detection", {})
         explanations = anomaly_detection.get("explanations", {})
         label = "EFC"
-        if not baseline and algorithm.get("type") in {"EFC", "OCN"}:
+        if not baseline and algorithm.get("type") in {"EFC", "OCN", "CLOSR"}:
             label = algorithm["type"]
         elif not baseline:
             method = anomaly_detection.get("method", "AE")
@@ -385,7 +385,7 @@ def summary_figure(comparison):
         0.5, 0.035,
         "Cells: mean (%) and ± sample SD (percentage points) of each seed's equal-weight mean across held-out attacks."
         + baseline_note + "\n"
-        "Yellow bold: column best, including ties (minimum FPR@95, maximum otherwise). Superscript ?: SD > 10 percentage points.",
+        "Yellow bold: column best, including ties (minimum FPR/FPR@95, maximum otherwise). Superscript ?: SD > 10 percentage points.",
         ha="center", fontsize=10, color="#555555", linespacing=1.6,
     )
     return figure

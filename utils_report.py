@@ -14,7 +14,7 @@ TRAINING_PHASES = (
     ("ad_seconds", "Anomaly detection", "#EEAA33"),
     ("other_seconds", "Other / overhead", "#BBBBBB"),
 )
-ALGORITHM_COLORS = {"NeSy-NIDS": "#4477AA", "EFC": "#AA3377", "OCN": "#CC6677"}
+ALGORITHM_COLORS = {"NeSy-NIDS": "#4477AA", "EFC": "#AA3377", "OCN": "#CC6677", "CLOSR": "#228833"}
 
 
 def summarize(values):
@@ -52,7 +52,7 @@ def read_timing_summary(path, groups):
     for name, group in groups.items():
         algorithm = group["config"].get("algorithm", {})
         kind = "EFC" if group.get("baseline") else algorithm.get("type", "NeSy-NIDS")
-        kind = {"nesy-nids": "NeSy-NIDS", "efc": "EFC", "ocn": "OCN"}.get(str(kind).casefold(), kind)
+        kind = {"nesy-nids": "NeSy-NIDS", "efc": "EFC", "ocn": "OCN", "closr": "CLOSR"}.get(str(kind).casefold(), kind)
         if kind not in ALGORITHM_COLORS:
             raise ValueError(f"{name}: unknown timing algorithm {kind!r}")
         run_names = {Path(run).name for run in group["runs"]}

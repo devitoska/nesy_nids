@@ -54,7 +54,7 @@ class Norm(nn.Module):
     """Tabular layernorm implementation"""
 
     def forward(self, x):
-        return F.normalise(x, p=2.0, dim=-1)
+        return F.normalize(x, p=2.0, dim=-1)
 
 
 class DenseBlock(nn.Module):

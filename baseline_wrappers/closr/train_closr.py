@@ -1,47 +1,39 @@
 """Script to train CLOSR model"""
+import random
+import sys
+from pathlib import Path
 
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import os
+import numpy as np
 import torch as T
 import argparse
-from CLOSR.model.model import CLOSRMLP
-from CLOSR.losses.closr_loss import CLOSRLoss
+from baseline_wrappers.closr.model.model import CLOSRMLP
+from baseline_wrappers.closr.losses.closr_loss import CLOSRLoss
 import time
-from CLOSR.data.load_data import get_data
-from CLOSR.data.loaders import tabular_dl
+from baseline_wrappers.closr.utils_closr import load_partition
+from baseline_wrappers.closr.data.loaders import tabular_dl
 from baseline_wrappers.closr.util.schedules import WarmupCosineSchedule, LRSchedule
-import sys
 from baseline_wrappers.closr.util.meter import AverageMeter
 from baseline_wrappers.closr.util.checkpoint import make_checkpoint
 
+from baseline_wrappers.utils_baselines import DEFAULT_DATA_DIR, discover_classes, record_stage_time
 
 def parse_option():
     parser = argparse.ArgumentParser("argument for training")
 
     # data config
     parser.add_argument(
-        "--data_path", type=str, default="data/lycos.csv", help="path to dataset"
+        "--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="path to dataset"
     )
-    parser.add_argument(
-        "--drop_cols",
-        type=str,
-        default="flow_id,src_addr,src_port,dst_addr,dst_port,ip_prot,timestamp",
-        help="columns to drop from dataset",
-    )
-    parser.add_argument(
-        "--sample_thres",
-        type=int,
-        default=100,
-        help="maximum number before exclusion as a zero day attack",
-    )
-    parser.add_argument(
-        "--split_seed", type=int, default=39058032, help="seed for train test split"
-    )
+    parser.add_argument("--results-dir", type=Path, default=Path(__file__).resolve().parents[2] / "results/closr")
+    parser.add_argument("--classes", nargs="+", help="Optional subset of discovered classes; default: all")
 
     # model config
     parser.add_argument(
         "--d_out", type=int, default=64, help="model output dimensionality"
-    )
-    parser.add_argument(
-        "--n_classes", type=int, default=12, help="number of classes in dataset"
     )
     parser.add_argument(
         "--neurons",
@@ -52,7 +44,7 @@ def parse_option():
     parser.add_argument("--dropout", type=float, default=0.1, help="dropout rate")
     parser.add_argument(
         "--residual",
-        type=bool,
+        action=argparse.BooleanOptionalAction,
         default=False,
         help="Whether to use residual connections in mlp",
     )
@@ -63,7 +55,7 @@ def parse_option():
     )
     parser.add_argument(
         "--squared",
-        type=bool,
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Whether to square distance metric in loss calculation",
     )
@@ -75,44 +67,47 @@ def parse_option():
     )
     parser.add_argument("--lr", type=float, default=1e-5, help="learning rate")
     parser.add_argument("--epochs", type=int, default=200, help="number of epochs")
-    parser.add_argument("--device", type=str, default="cuda", help="device")
+    parser.add_argument("--device", type=str, default="auto", help="auto, cpu, or cuda")
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--print_freq", type=int, default=100, help="how many batches to print after"
     )
 
     opt = parser.parse_args()
+    if opt.epochs < 1 or opt.batch_size < 2 or opt.print_freq < 1:
+        parser.error("epochs and print_freq must be positive; batch_size must be >=2")
+    if not 0 <= opt.seed < 2**32:
+        parser.error("seed must be between 0 and 2**32 - 1")
+    if opt.device == "auto":
+        opt.device = "cuda" if T.cuda.is_available() else "cpu"
 
-    # parse drop cols into list
-    drop_cols = opt.drop_cols.split(",")
-    opt.drop_cols = list([])
-    for c in drop_cols:
-        opt.drop_cols.append(c)
+    try:
+        opt.classes = discover_classes(opt.data_dir, opt.classes)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
 
     # parse neurons into list
-    neurons = opt.neurons.split(",")
-    opt.neurons = list([])
-    for n in neurons:
-        opt.neurons.append(int(n))
+    try:
+        opt.neurons = [int(n) for n in opt.neurons.split(",")]
+        if min(opt.neurons) < 1 or opt.d_out < 1:
+            raise ValueError
+    except ValueError:
+        parser.error("neurons and d_out must be positive integers")
 
     return opt
 
 
-def set_loader(opt):
-    x_train, y_train, _, _, _, _, _, _ = get_data(
-        data_path=opt.data_path,
-        target="label",
-        drop=opt.drop_cols,
-        class_zero="benign",
-        sample_thres=opt.sample_thres,
-        split_seed=opt.split_seed,
-        test_ratio=0.5,
-        val_ratio=0.0,
+def set_loader(opt, partition_path):
+    x_train, y_train, _, _, _, _, opt.preprocessing = load_partition(
+        data_path=partition_path, include_test=False,
     )
+    opt.d_in = x_train.shape[1]
+    opt.n_classes = len(opt.preprocessing["classes"])
 
     train_dl = tabular_dl(
         x=x_train,
         y=y_train,
-        batch_size=opt.batch_size,
+        batch_size=min(opt.batch_size, len(y_train)),
         balanced=True,
         collate_fn=None,
         drop_last=True,
@@ -125,7 +120,7 @@ def set_loader(opt):
 def set_model(opt):
     # get model
     model = CLOSRMLP(
-        d_in=72,
+        d_in=opt.d_in,
         n_classes=opt.n_classes,
         d_out=opt.d_out,
         neurons=opt.neurons,
@@ -197,10 +192,12 @@ def train(
             x=z,
             y=y,
         )
+        if not T.isfinite(loss):
+            raise RuntimeError("CLOSR produced a nonfinite training loss")
 
         # update metric
         losses.update(loss.item(), bsz)
-        frac_pos_vals.update(criterion.get_fraction_pos())
+        frac_pos_vals.update(criterion.get_fraction_pos().item())
 
         # optimser
         optimizer.zero_grad()
@@ -237,31 +234,49 @@ def train(
 def main():
     opt = parse_option()
 
-    # build data loader
-    train_loader = set_loader(opt)
+    with record_stage_time(opt.results_dir, "train"):
+        print("Training CLOSR...")
 
-    # build model and criterion
-    model, criterion = set_model(opt)
+        # Create "results" directory if it doesn't exist
+        opt.results_dir.mkdir(parents=True, exist_ok=True)
 
-    # build optimizer
-    optimiser, schedule = set_optimiser(opt, model, train_loader)
+        for cls in opt.classes:
+            random.seed(opt.seed)
+            np.random.seed(opt.seed)
+            T.manual_seed(opt.seed)
 
-    # training routine
-    for epoch in range(1, opt.epochs + 1):
-        # train for one epoch
-        time1 = time.time()
-        train(train_loader, model, criterion, optimiser, schedule, epoch, opt)
-        time2 = time.time()
-        print("epoch {}, total time {:.2f}".format(epoch, time2 - time1))
+            partition_path = opt.data_dir / f"no_{cls}"
+            # build data loader
+            train_loader = set_loader(opt, partition_path)
 
-    # save the trained model
-    make_checkpoint(
-        model=model,
-        optimiser=optimiser,
-        schedular=schedule,
-        path="weights/closr.pt.tar",
-    )
+            # build model and criterion
+            model, criterion = set_model(opt)
 
+            # build optimizer
+            optimiser, schedule = set_optimiser(opt, model, train_loader)
+
+            # training routine
+            for epoch in range(1, opt.epochs + 1):
+                # train for one epoch
+                time1 = time.time()
+                train(train_loader, model, criterion, optimiser, schedule, epoch, opt)
+                time2 = time.time()
+                print("epoch {}, total time {:.2f}".format(epoch, time2 - time1))
+
+            os.makedirs(opt.results_dir / "closr", exist_ok=True)
+            # save the trained model
+            make_checkpoint(
+                model=model,
+                optimiser=optimiser,
+                # Store scheduler state without pickling the scheduler object.
+                schedular_state_dict=schedule.state_dict(),
+                path=str(opt.results_dir / "closr" / f"closr_no_{cls}.pt.tar"),
+                format_version=1,
+                preprocessing=opt.preprocessing,
+                model_config={key: getattr(opt, key) for key in
+                              ("d_in", "n_classes", "d_out", "neurons", "dropout", "residual")},
+                seed=opt.seed,
+            )
 
 if __name__ == "__main__":
     main()

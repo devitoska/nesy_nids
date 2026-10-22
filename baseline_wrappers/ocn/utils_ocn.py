@@ -31,12 +31,12 @@ from sklearn.preprocessing import MinMaxScaler
 import torch
 
 if __package__:
-    from .utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
+    from ..utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
 else:
     from utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "results/ocn"
 CHECKPOINT_VERSION = 2
 

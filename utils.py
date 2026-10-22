@@ -1,6 +1,26 @@
 import os
 import pandas as pd
 import json
+import numpy as np
+from sklearn.metrics import confusion_matrix, classification_report, roc_curve, roc_auc_score, precision_recall_curve, auc, recall_score
+
+
+def compute_metrics(y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores):
+    pr, rc, _ = precision_recall_curve(y_gt_bin, ad_scores)
+    fpr, tpr, _ = roc_curve(y_gt_bin, ad_scores)
+
+    # save results
+    metrics = {
+        "roc_auc_score": roc_auc_score(y_gt_bin, ad_scores),
+        "auc_score": auc(rc, pr),
+        "tpr" : recall_score(y_gt_bin, y_pred_bin, pos_label=1),
+        "fpr" : 1 - recall_score(y_gt_bin, y_pred_bin, pos_label=0),
+        "fpr_at_95_tpr":  float(fpr[np.flatnonzero(tpr >= 0.95)[0]]),
+        "classification_report_binary": classification_report(y_gt_bin, y_pred_bin, output_dict=True),
+        "confusion_matrix_multiclass": confusion_matrix(y_gt_mul, y_pred_mul).tolist(),
+        "classification_report_multiclass": classification_report(y_gt_mul, y_pred_mul, output_dict=True)
+    }
+    return metrics
 
 def create_metrics_table(exp_path):
 

@@ -1,7 +1,7 @@
 """Train OCN with the paper's KDD-style 1D backbone on raw TON-IoT features.
 
 Run from any directory:
-    python baseline_wrappers/train_ocn.py
+    python baseline_wrappers/ocn/train_ocn.py
 
 Inputs: no_<attack>/train_1_raw_data.csv and train_2_raw_data.csv, with class labels.
 Outputs: results/ocn/ocn/ocn_no_<attack>.pt. Use --help for shorter trial runs.
@@ -16,6 +16,7 @@ Defaults follow the KDD batch size (256) and Fisher inter-class coefficient
 """
 
 import argparse
+import sys
 import math
 from pathlib import Path
 import tempfile
@@ -25,9 +26,10 @@ import pandas as pd
 import torch
 
 if __package__:
-    from .. import utils_ocn as utils
+    from . import utils_ocn as utils
 else:
-    import utils_ocn as utils
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import baseline_wrappers.ocn.utils_ocn as utils
 
 
 def train_partition(ocn, unknown_class, args):

@@ -50,12 +50,12 @@ where `--exp_path` is a mandatory argument specifying the path to the folder con
 To train and evaluate the EFC model, run the following commands:
 
 ```bash
-python baseline_wrappers/train_efc.py
-python baseline_wrappers/test_efc.py
+python baseline_wrappers/efc/train_efc.py
+python baseline_wrappers/efc/test_efc.py
 ```
 
 EFC results are saved in `results/efc`. The OCN equivalents are
-`baseline_wrappers/train_ocn.py` and `baseline_wrappers/test_ocn.py`, with results
+`baseline_wrappers/ocn/train_ocn.py` and `baseline_wrappers/ocn/test_ocn.py`, with results
 in `results/ocn`. Both accept `--data-dir` and `--results-dir` and discover the
 held-out classes from `no_<class>` directories in the dataset.
 
@@ -70,7 +70,7 @@ Each config selects its dataset and algorithm. A baseline config needs only:
 ```yaml
 dataset_path: data/dataset/ton-iot_net
 algorithm:
-  type: EFC  # EFC, OCN, or NeSy-NIDS
+  type: EFC  # EFC, OCN, CLOSR, or NeSy-NIDS
 ```
 
 For NeSy-NIDS, put `bayesian_network` and `anomaly_detection` inside `algorithm`,
@@ -78,7 +78,7 @@ as in `config.yml`. Existing configs with these settings at the top level remain
 supported. Relative dataset paths are resolved from the project directory.
 
 Batch runs invoke the corresponding train and test scripts and save each run in
-`results/<config_stem>_<seed>/`. EFC uses the discretized CSV files; OCN uses
+`results/<config_stem>_<seed>/`. EFC uses the discretized CSV files; OCN and CLOSR use
 `train_1_raw_data.csv`, `train_2_raw_data.csv`, and `test_raw_data.csv`.
 All algorithms save `timings.json` inside their experiment directory, containing
 `train_seconds`, `test_seconds`, and a completion status. NeSy-NIDS additionally
@@ -89,3 +89,28 @@ and retains the JSON. Baselines have `null` in the three NeSy-only phase columns
 Stage durations measure work inside the scripts; the batch total also includes
 subprocess startup and shutdown. Failed stages retain their elapsed time with
 status `failed` and do not produce a successful batch timing row.
+
+CLOSR can also run directly:
+
+```bash
+python baseline_wrappers/closr/train_closr.py --data-dir data/dataset/lycos-ids2017 --results-dir results/closr
+python baseline_wrappers/closr/test_closr.py --data-dir data/dataset/lycos-ids2017 --results-dir results/closr
+```
+
+For batch runs, set `algorithm: {type: CLOSR}` in a YAML config under `configs/`.
+CLOSR runs for each configured seed (or `--num_seed`), while EFC runs once.
+CLOSR learns dimensions, label mappings, and z-normalization from each
+partition's training CSVs and saves them with the model. `--classes` selects
+partitions, not the classes learned within a partition. CPU is used when CUDA
+is unavailable; `--device cpu` forces CPU execution. Training accepts
+`--epochs`, `--batch_size`, `--neurons`, `--d_out`, and `--seed` for small trials.
+Testing restores the saved architecture, so these options need not be repeated.
+
+CLOSR negates its knownness score so that higher scores mean unknown, matching
+EFC's metric convention. Its rejection threshold is the 99th percentile of
+known training anomaly scores (test option `--rejection-rate`, default `0.01`).
+This is a wrapper calibration policy, not a claim about the original CLOSR
+evaluation protocol. Test labels do not select the threshold. The threshold
+and calibration policy are recorded in each `results.json`; results also include
+`metrics/table.csv` and `timings.json`, as for EFC. Older CLOSR checkpoints
+without architecture and preprocessing metadata require retraining.

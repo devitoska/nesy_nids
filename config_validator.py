@@ -17,7 +17,7 @@ def normalize_config(config):
         kind = algorithm.get("type", "NeSy-NIDS")
         if isinstance(kind, str):
             algorithm["type"] = {
-                "nesy-nids": "NeSy-NIDS", "efc": "EFC", "ocn": "OCN",
+                "nesy-nids": "NeSy-NIDS", "efc": "EFC", "ocn": "OCN", "closr": "CLOSR",
             }.get(kind.casefold(), kind)
     return config
 
@@ -74,7 +74,7 @@ validation_schema = {
       "type": {
         "type": "string",
         "required": True,
-        "allowed": ["NeSy-NIDS", "EFC", "OCN"],
+        "allowed": ["NeSy-NIDS", "EFC", "OCN", "CLOSR"],
         "default": "NeSy-NIDS"
       },
       "bayesian_network": {

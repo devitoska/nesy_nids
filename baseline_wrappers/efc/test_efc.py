@@ -2,21 +2,23 @@ import pandas as pd
 import os
 import numpy as np
 import pickle
-from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score, precision_recall_curve, auc, recall_score
 import json
 import argparse
 from pathlib import Path
 
-if __package__:
-    from ..utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
-else:
-    from utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
+import sys
+
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils import compute_metrics
+from baseline_wrappers.utils_baselines import DEFAULT_DATA_DIR, create_metrics_table, discover_classes, record_stage_time
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Test EFC for each no_<class> data directory.")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--results-dir", type=Path, default=Path(__file__).resolve().parents[1] / "results/efc")
+    parser.add_argument("--results-dir", type=Path, default=Path(__file__).resolve().parents[2] / "results/efc")
     parser.add_argument("--classes", nargs="+", help="Optional subset of discovered classes; default: all")
     args = parser.parse_args()
     try:
@@ -47,16 +49,8 @@ if __name__ == "__main__":
             y_pred_mul = np.where(y_pred_mul == "unknown", unknown_cls, y_pred_mul)
             y_pred_bin = (y_pred_mul == unknown_cls).astype(int)
 
-            pr, rc, _ = precision_recall_curve(y_gt_bin, energies)
-            # save results
-            metrics = {
-                "roc_auc_score": roc_auc_score(y_gt_bin, energies),
-                "auc_score": auc(rc, pr),
-                "fpr" : 1 - recall_score(y_gt_bin, y_pred_bin, pos_label=0),
-                "classification_report_binary": classification_report(y_gt_bin, y_pred_bin, output_dict=True),
-                "confusion_matrix_multiclass": confusion_matrix(y_gt_mul, y_pred_mul).tolist(),
-                "classification_report_multiclass": classification_report(y_gt_mul, y_pred_mul, output_dict=True)
-            }
+            ad_scores = energies  # assuming energies are used as anomaly detection scores
+            metrics = compute_metrics(y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores)
 
             os.makedirs(args.results_dir / "metrics" / f"no_{unknown_cls}", exist_ok=True)
             with open(args.results_dir / "metrics" / f"no_{unknown_cls}" / "results.json", "w") as f:
