@@ -146,7 +146,7 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
     with run_config.open(encoding="utf-8") as config_file:
         config = validate_config(yaml.safe_load(config_file))
     algorithm = config["algorithm"]["type"]
-    baseline = algorithm in {"EFC", "OCN", "CLOSR"}
+    baseline = algorithm in {"EFC", "OCN", "CLOSR", "Siamese", "CROSR", "OpenMax", "DOC"}
     experiment_dir = results_dir / name
     timing_path = experiment_dir / "timings.json"
     if baseline:
@@ -159,7 +159,7 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
         arguments = ["--data-dir", str(data_dir), "--results-dir", str(experiment_dir)]
         train_script = f"baseline_wrappers/{algorithm.lower()}/train_{algorithm.lower()}.py"
         test_script = f"baseline_wrappers/{algorithm.lower()}/test_{algorithm.lower()}.py"
-        train_arguments = arguments + (["--seed", str(seed)] if algorithm in {"OCN", "CLOSR"} else [])
+        train_arguments = arguments + (["--seed", str(seed)] if algorithm in {"OCN", "CLOSR", "Siamese", "CROSR", "OpenMax", "DOC"} else [])
         test_arguments = arguments
     else:
         train_script, test_script = "train.py", "test.py"

@@ -74,7 +74,7 @@ validation_schema = {
       "type": {
         "type": "string",
         "required": True,
-        "allowed": ["NeSy-NIDS", "EFC", "OCN", "CLOSR"],
+        "allowed": ["NeSy-NIDS", "EFC", "OCN", "CLOSR", "Siamese", "CROSR", "OpenMax", "DOC"],
         "default": "NeSy-NIDS"
       },
       "bayesian_network": {

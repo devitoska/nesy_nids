@@ -1,6 +1,7 @@
 """Adapters for project partitions and device handling; CLOSR core stays intact."""
 
 from pathlib import Path
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -44,6 +45,11 @@ def load_partition(data_path, *, include_test=True, preprocessing=None):
         norm.fit(x_train)
         # Constant columns in project CSVs must not cause division by zero.
         norm.std = np.where(norm.std == 0, 1.0, norm.std)
+        with (data_path.parent / "categorical_columns.pkl").open("rb") as f:
+            categorical_columns = pickle.load(f)
+        categorical_mask = np.isin(features, list(categorical_columns))
+        norm.mean[categorical_mask] = 0.0
+        norm.std[categorical_mask] = 1.0
         preprocessing = {
             "classes": classes, "unknown_class": unknown_class, "features": features,
             "mean": norm.mean.tolist(), "std": norm.std.tolist(),

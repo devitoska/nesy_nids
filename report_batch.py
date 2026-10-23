@@ -266,7 +266,7 @@ def build_comparison(groups, reports):
         anomaly_detection = algorithm.get("anomaly_detection", {})
         explanations = anomaly_detection.get("explanations", {})
         label = "EFC"
-        if not baseline and algorithm.get("type") in {"EFC", "OCN", "CLOSR"}:
+        if not baseline and algorithm.get("type") in {"EFC", "OCN", "CLOSR", "Siamese", "CROSR", "OpenMax", "DOC"}:
             label = algorithm["type"]
         elif not baseline:
             method = anomaly_detection.get("method", "AE")

@@ -3,6 +3,7 @@ import optbinning as optb
 import numpy as np
 import pandas as pd
 import os
+import pickle
 
 hierarchical_coarse_bins = 32
 hierarchical_within_bins = 32
@@ -197,6 +198,11 @@ def preprocess_loop(
         num_bins=50,
         mode="base",
 ):
+    # save categorical columns to a file with pickle
+    categorical_file = os.path.join(output_dir, f"categorical_columns.pkl")
+    with open(categorical_file, "wb") as f:
+        pickle.dump(categorical_columns, f)
+
     for unknown_cls in unknown_classes:
         train1 = raw_train1.loc[raw_train1["class"] != unknown_cls].copy()
         train2 = raw_train2.loc[raw_train2["class"] != unknown_cls].copy()
@@ -222,14 +228,20 @@ def preprocess_loop(
                 continue
 
             if col in categorical_columns:
-                # Vocabulary comes exclusively from known training examples.
+                # Preserve training codes, then append distinct test-only values.
                 categories = pd.Index(known_train[col].dropna().unique())
+                num_known = len(categories)
+                test_categories = pd.Index(test[col].dropna().unique())
+                categories = categories.append(
+                    test_categories[~test_categories.isin(categories)]
+                )
                 for i in range(len(partitions)):
                     partitions[i][col] = pd.Categorical(
                         partitions[i][col], categories=categories,
-                    ).codes  # Unseen or missing categories receive -1.
+                    ).codes  # Only missing values receive -1.
 
-                    partitions_raw[i][col] = partitions[i][col].copy() / len(categories)  # Normalize to [0, 1] range.
+                    # Keep training scaling fixed; test-only values start at 1.
+                    partitions_raw[i][col] = partitions[i][col].copy() / num_known
             else:
                 train_min = known_train[col].min()
                 train_range = known_train[col].max() - train_min
