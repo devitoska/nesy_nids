@@ -7,8 +7,9 @@ bn_seconds, explanations_seconds, ad_seconds to results/times after each
 experiment. All algorithms retain train/test totals in each run's timings.json;
 baseline phase columns, like skipped NeSy phases, are null. At most --threads
 subprocesses run at once, with training preceding testing for each experiment.
-Each subprocess has a --timeout deadline (default: 86400 seconds). On failure
-or interruption, active process groups are terminated and queued work cancelled.
+Each subprocess has a --timeout deadline (default: 86400 seconds). Failed runs
+are reported after the remaining runs finish. On interruption, active process
+groups are terminated and queued work cancelled.
 --skip N skips the first N experiments in sorted config order, preserving seeds.
 """
 
@@ -53,7 +54,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 
 
 class ProcessRunner:
-    """Own subprocess groups and stop them together when the batch fails."""
+    """Clean up each subprocess group; stop all groups on batch interruption."""
 
     def __init__(self, timeout, grace_period=5.0):
         self.timeout = timeout
@@ -129,9 +130,6 @@ class ProcessRunner:
                 raise subprocess.CalledProcessError(returncode, command)
             if self.stopped.is_set():
                 raise CancelledError(f"Batch stopped while running {script}")
-        except BaseException as error:
-            self.stop(error)
-            raise
         finally:
             if process is not None:
                 try:
@@ -207,7 +205,8 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
 def run_experiments(project_dir, experiments, times_path, threads, timeout, test = False):
     processes = ProcessRunner(timeout)
     times_lock = Lock()
-    futures = []
+    futures = {}
+    failures = []
     executor = None
     previous_handlers = {}
 
@@ -225,12 +224,32 @@ def run_experiments(project_dir, experiments, times_path, threads, timeout, test
         for run_config, name, seed in experiments:
             if processes.stopped.is_set():
                 break
-            futures.append(executor.submit(
+            future = executor.submit(
                 run_experiment, project_dir, run_config, name, seed,
                 times_path, times_lock, processes, test
-            ))
+            )
+            futures[future] = name
         for future in as_completed(futures):
-            future.result()
+            try:
+                future.result()
+            except Exception as error:
+                name = futures[future]
+                failures.append(error)
+                print(f"Failed {name}: {error}", file=sys.stderr, flush=True)
+                # A killed child may leave stale running or completed timings.
+                timing_path = times_path.parent / name / "timings.json"
+                try:
+                    timings = json.loads(timing_path.read_text()) if timing_path.exists() else {}
+                    if not isinstance(timings, dict):
+                        timings = {}
+                    timings["status"] = "failed"
+                    timing_path.parent.mkdir(parents=True, exist_ok=True)
+                    timing_path.write_text(json.dumps(timings, indent=2), encoding="utf-8")
+                except (OSError, ValueError) as timing_error:
+                    print(f"Warning: could not mark {name} failed: {timing_error}", file=sys.stderr)
+        if failures:
+            print(f"{len(failures)} of {len(futures)} experiments failed", file=sys.stderr)
+            raise failures[0]
     except BaseException as error:
         for signum in previous_handlers:
             signal.signal(signum, signal.SIG_IGN)

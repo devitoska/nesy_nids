@@ -138,6 +138,17 @@ def unknown_counts(experiment, results):
     })
 
 
+def is_completed(experiment):
+    try:
+        timings = json.loads((experiment / "timings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        timings = {}
+    if not isinstance(timings, dict) or timings.get("status") != "completed":
+        print(f"Warning: skipping {experiment}: run is not completed", file=sys.stderr)
+        return False
+    return True
+
+
 def discover_experiments(results_dir):
     groups = {}
     for experiment in sorted(results_dir.iterdir()):
@@ -150,6 +161,8 @@ def discover_experiments(results_dir):
         match = re.fullmatch(r"(.+)_(\d+)", experiment.name)
         if match is None:
             print(f"Warning: skipping {experiment}: expected <config>_<seed> name", file=sys.stderr)
+            continue
+        if not is_completed(experiment):
             continue
         if not (experiment / "metrics").is_dir():
             print(f"Warning: skipping {experiment}: no evaluation metrics yet", file=sys.stderr)
@@ -171,7 +184,7 @@ def discover_experiments(results_dir):
         group["seeds"].add(seed)
         group["runs"].append(experiment)
     efc = results_dir / "efc"
-    if efc.is_dir():
+    if efc.is_dir() and is_completed(efc):
         if "efc" in groups:
             raise ValueError("Cannot combine seeded efc runs with the fixed efc/ baseline")
         groups["efc"] = {"config": {}, "runs": [efc], "baseline": True}
