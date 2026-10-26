@@ -139,7 +139,7 @@ class ProcessRunner:
                         self._active.discard(process)
 
 
-def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, processes, test=False):
+def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, processes, test=False, classes=None):
     results_dir = times_path.parent
     with run_config.open(encoding="utf-8") as config_file:
         config = validate_config(yaml.safe_load(config_file))
@@ -155,6 +155,8 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
         if not data_dir.is_absolute():
             data_dir = project_dir / data_dir
         arguments = ["--data-dir", str(data_dir), "--results-dir", str(experiment_dir)]
+        if classes is not None:
+            arguments.extend(["--classes", *classes])
         train_script = f"baseline_wrappers/{algorithm.lower()}/train_{algorithm.lower()}.py"
         test_script = f"baseline_wrappers/{algorithm.lower()}/test_{algorithm.lower()}.py"
         train_arguments = arguments + (["--seed", str(seed)] if algorithm in {"OCN", "CLOSR", "Siamese", "CROSR", "OpenMax", "DOC"} else [])
@@ -202,7 +204,7 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
     )
 
 
-def run_experiments(project_dir, experiments, times_path, threads, timeout, test = False):
+def run_experiments(project_dir, experiments, times_path, threads, timeout, test = False, classes=None):
     processes = ProcessRunner(timeout)
     times_lock = Lock()
     futures = {}
@@ -226,7 +228,7 @@ def run_experiments(project_dir, experiments, times_path, threads, timeout, test
                 break
             future = executor.submit(
                 run_experiment, project_dir, run_config, name, seed,
-                times_path, times_lock, processes, test
+                times_path, times_lock, processes, test, classes
             )
             futures[future] = name
         for future in as_completed(futures):
@@ -277,6 +279,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Initial random seed (default: 42)")
     parser.add_argument("--threads", type=int, default=1, help="Maximum concurrent subprocesses (default: 1)")
     parser.add_argument("--test", action="store_true", help="Assume training and run only testing")
+    parser.add_argument("--classes", nargs="+", help="Subset of partitions passed to baseline train/test scripts; default: all (NeSy-NIDS unaffected)")
     parser.add_argument(
         "--skip", type=int,
         help="Skip the first N experiments; count each EFC config once",
@@ -381,7 +384,7 @@ def main():
                     yaml.safe_dump({**config, "seed": seed}, config_file)
                 experiments.append((run_config, name, seed))
 
-        run_experiments(project_dir, experiments, times_path, args.threads, args.timeout, args.test)
+        run_experiments(project_dir, experiments, times_path, args.threads, args.timeout, args.test, args.classes)
 
 
 if __name__ == "__main__":
