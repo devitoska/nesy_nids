@@ -17,7 +17,7 @@ def normalize_config(config):
         kind = algorithm.get("type", "NeSy-NIDS")
         if isinstance(kind, str):
             algorithm["type"] = {
-                "nesy-nids": "NeSy-NIDS", "efc": "EFC", "ocn": "OCN", "closr": "CLOSR",
+                "nesy-nids": "NeSy-NIDS", "efc": "EFC", "ocn": "OCN", "closr": "CLOSR", "siamese": "Siamese", "crosr": "CROSR", "openmax": "OpenMax", "doc": "DOC"
             }.get(kind.casefold(), kind)
     return config
 
