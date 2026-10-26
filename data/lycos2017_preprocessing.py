@@ -16,6 +16,9 @@ def preprocess(data, output_dir="data/dataset/lycos-ids2017", mode = "base"):
     data.columns = [col.lower().strip() for col in data.columns]
     data = data.rename(columns={"label": "class"})
 
+    # remove "flow_id", "src_addr", "dst_addr", "timestamp" columns as they are not useful for classification
+    data = data.drop(columns=["flow_id", "src_addr", "dst_addr", "timestamp"], errors="ignore")
+
     # Delete rows with class 'heartbleed' and 'bot' as they are too few to be useful.
     data = data[~data["class"].isin(["heartbleed", "bot"])]
 
