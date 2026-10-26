@@ -112,7 +112,10 @@ if __name__ == "__main__":
     for class_name, df in class_to_train_df.items():
         if class_name != "normal":
             class_to_train_df[class_name] = df.sample(n=min(20_000, len(df)), random_state=random_state)
-            class_to_test_df[class_name] = df.sample(n=min(10_000, len(df)), random_state=random_state)
+
+    for class_name, df in class_to_test_df.items():
+            if class_name != "normal":
+                class_to_test_df[class_name] = df.sample(n=min(20_000, len(df)), random_state=random_state)
 
     # aggregate all dataframes into a single dataframe for train and test
     train_data = pd.concat(class_to_train_df.values(), ignore_index=True)
