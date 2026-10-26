@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import torch as T
 
-from baseline_wrappers.siamese_network.utils_siamese import (
+from baseline_wrappers.siamese.utils_siamese import (
     build_model, class_distances, embed, resolve_device, transform,
 )
 from baseline_wrappers.utils_baselines import (

@@ -8,6 +8,8 @@ Conda environment is recommended. To install the required packages, run the foll
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
 conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 conda env create -f environment.yml
+conda activate nesy_nids
+python -m pip install --no-build-isolation "libmr==0.1.9"
 ```
 
 To install efc package, run the following commands:

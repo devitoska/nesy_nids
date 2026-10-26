@@ -8,7 +8,7 @@ from bn.utils import load_bn
 from ad._if import IF
 from ad._ae import AE
 from ad.utils import transform_explanations
-from ..utils import compute_metrics
+from utils import compute_metrics
  
 def test_ad(exp_name, config):
 

@@ -8,7 +8,7 @@ import pandas as pd
 import torch as T
 
 from baseline_wrappers.closr.model.model import ContrastiveMLP
-from baseline_wrappers.siamese_network.siamese_network import distance_matrix
+from baseline_wrappers.siamese.siamese_network import distance_matrix
 
 
 def resolve_device(value):

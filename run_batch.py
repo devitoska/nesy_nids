@@ -282,8 +282,8 @@ def main():
         help="Skip the first N experiments; count each EFC config once",
     )
     parser.add_argument(
-        "--timeout", type=float, default=86400,
-        help="Maximum seconds per train/test subprocess (default: 86400 = 24 hours)",
+        "--timeout", type=float, default=172800,
+        help="Maximum seconds per train/test subprocess (default: 172800 = 48 hours)",
     )
     args = parser.parse_args()
 

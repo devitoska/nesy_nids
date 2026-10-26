@@ -26,4 +26,6 @@ dependencies:
   - pip:
     - optbinning<1.0.0
     - ortools<9.8
-    - libmr==0.1.9
+    - cython
+    - setuptools
+    - wheel

@@ -17,8 +17,8 @@ import numpy as np
 import torch as T
 from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
-from baseline_wrappers.siamese_network.siamese_network import OnlineContrastiveLoss
-from baseline_wrappers.siamese_network.utils_siamese import (
+from baseline_wrappers.siamese.siamese_network import OnlineContrastiveLoss
+from baseline_wrappers.siamese.utils_siamese import (
     build_model, class_distances, embed, load_training, reference_indices, resolve_device,
 )
 from baseline_wrappers.utils_baselines import DEFAULT_DATA_DIR, discover_classes, record_stage_time
