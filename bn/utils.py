@@ -1,4 +1,6 @@
-from pgmpy.readwrite import XMLBIFReader
+from pgmpy.readwrite import XMLBIFReader, XMLBIFWriter
+from pgmpy.utils import compat_fns
+import xml.etree.ElementTree as etree
 from pgmpy.models import DiscreteBayesianNetwork
 from pgmpy.estimators import ExpertKnowledge
 import os
@@ -7,6 +9,21 @@ from IPython.display import Image
 
 from bn.structure_learning import learn_structure
 from bn.parameter_learning import estimate_parameters
+
+class _LinearXMLBIFWriter(XMLBIFWriter):
+    """Build probability tables without repeatedly copying growing XML text."""
+
+    def get_values(self):
+        tables = {}
+        for cpd in self.model.get_cpds():
+            table = etree.SubElement(self.definition[cpd.variable], "TABLE")
+            table.text = "".join(
+                str(value) + " "
+                for value in compat_fns.ravel_f(cpd.get_values())
+            )
+            tables[cpd.variable] = table
+        return tables
+
 
 def print_bn_info(bn, base_path : str = None, 
                   search_strategy: str = None,
@@ -67,7 +84,7 @@ def save_bn_image(bn, base_path, file_name: str = "bn_model.png"):
 def save_bn_model(bn, base_path):
     file_path = os.path.join(base_path, "bn_model.xmlbif")
     # Save the Bayesian Network model
-    bn.save(file_path, filetype='xmlbif') # save as xmlbif format
+    _LinearXMLBIFWriter(bn).write_xmlbif(file_path)
 
 # In BN, Class variable is the target variable
 def get_expert_knowledge(data: pd.DataFrame, class_column: str = "class") -> ExpertKnowledge:
