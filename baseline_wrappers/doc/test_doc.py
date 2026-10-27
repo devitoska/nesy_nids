@@ -25,15 +25,12 @@ def parse_option():
     # data config
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Path to dataset")
     parser.add_argument("--results-dir", type=Path,
-                        help="Exact run directory; default: results/doc_<seed>")
+                        help="Exact run directory")
     parser.add_argument("--classes", nargs="+", help="Optional subset of discovered partitions")
     parser.add_argument("--device", default="auto", help="auto, cpu, or cuda[:index]")
-    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--chunk-size", "--chunk_size", type=int, default=1024)
 
     opt = parser.parse_args()
-    if not 0 <= opt.seed < 2**32:
-        parser.error("seed must be between 0 and 2**32 - 1")
     if opt.device == "auto":
         opt.device = "cuda" if T.cuda.is_available() else "cpu"
     try:
@@ -48,8 +45,6 @@ def parse_option():
     # config validation and transformation
     if opt.chunk_size < 1:
         parser.error("chunk-size must be positive")
-    if opt.results_dir is None:
-        opt.results_dir = Path(__file__).resolve().parents[2] / "results" / f"doc_{opt.seed}"
     return opt
 
 
@@ -57,8 +52,6 @@ def parse_option():
 def eval(opt, checkpoint, unknown_cls):
     if checkpoint.get("format_version") != 1 or checkpoint.get("algorithm") != "doc":
         raise ValueError("Unsupported doc checkpoint")
-    if checkpoint["seed"] != opt.seed:
-        raise ValueError("Checkpoint seed differs from --seed")
     preprocessing = checkpoint["preprocessing"]
     if preprocessing["unknown_class"] != unknown_cls:
         raise ValueError("Checkpoint belongs to a different held-out class")
