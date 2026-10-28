@@ -31,7 +31,7 @@ def parse_option():
     parser.add_argument("--chunk-size", "--chunk_size", type=int, default=1024)
     # model and training config
     parser.add_argument("--neurons", default="256,256,256", help="Comma-separated hidden widths")
-    parser.add_argument("--dropout", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.3)
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch-size", "--batch_size", type=int, default=512)
     parser.add_argument("--lr", type=float, default=3e-4)

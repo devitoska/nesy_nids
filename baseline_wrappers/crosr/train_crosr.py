@@ -40,7 +40,7 @@ def parse_option():
     parser.add_argument("--weight-decay", "--weight_decay", type=float, default=1e-4)
     parser.add_argument("--balanced", action=argparse.BooleanOptionalAction, default=True,
                         help="Inverse-frequency sampling of known training classes")
-    parser.add_argument("--distance", choices=("euclidean", "cosine", "eucos"), default="euclidean")
+    parser.add_argument("--distance", choices=("euclidean", "cosine", "eucos"), default="cosine")
     parser.add_argument("--eucos-weight", type=float, default=1.0)
     parser.add_argument("--tail-size", type=int, default=50)
     parser.add_argument("--alpha", type=int, default=3,

@@ -48,7 +48,7 @@ def parse_option():
     parser.add_argument("--distance", choices=("cosine", "euclidean", "manhattan"), default="cosine")
     parser.add_argument("--margin", type=float, default=1.0)
     parser.add_argument("--squared", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--k", type=int, default=5, help="Neighbors averaged within each known class")
+    parser.add_argument("--k", type=int, default=15, help="Neighbors averaged within each known class")
     parser.add_argument("--calibration-fraction", type=float, default=0.2,
                         help="Fraction held out per known class before model/scaler fitting")
     parser.add_argument("--rejection-rate", type=float, default=0.05,

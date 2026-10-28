@@ -65,7 +65,7 @@ def parse_option():
     parser.add_argument(
         "--weight_decay", type=float, default=0.0403709, help="weight decay"
     )
-    parser.add_argument("--lr", type=float, default=1e-4, help="learning rate")
+    parser.add_argument("--lr", type=float, default=3e-4, help="learning rate")
     parser.add_argument("--epochs", type=int, default=200, help="number of epochs")
     parser.add_argument("--device", type=str, default="auto", help="auto, cpu, or cuda")
     parser.add_argument("--seed", type=int, default=42)
