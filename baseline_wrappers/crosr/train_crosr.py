@@ -31,19 +31,19 @@ def parse_option():
     parser.add_argument("--device", default="auto", help="auto, cpu, or cuda[:index]")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--neurons", default="256,256,256", help="Comma-separated hidden widths")
-    parser.add_argument("--bottlesize", type=int, default=32, help="Bottleneck width per layer")
+    parser.add_argument("--bottlesize", type=int, default=16, help="Bottleneck width per layer")
     parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--batch-size", "--batch_size", type=int, default=256)
+    parser.add_argument("--batch-size", "--batch_size", type=int, default=512)
     parser.add_argument("--chunk-size", "--chunk_size", type=int, default=1024)
     parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", "--weight_decay", type=float, default=1e-4)
     parser.add_argument("--balanced", action=argparse.BooleanOptionalAction, default=True,
                         help="Inverse-frequency sampling of known training classes")
     parser.add_argument("--distance", choices=("euclidean", "cosine", "eucos"), default="euclidean")
     parser.add_argument("--eucos-weight", type=float, default=1.0)
     parser.add_argument("--tail-size", type=int, default=50)
-    parser.add_argument("--alpha", type=int, default=10,
+    parser.add_argument("--alpha", type=int, default=3,
                         help="Top classes recalibrated by OpenMax; capped at known-class count")
     parser.add_argument("--threshold", type=float, default=0.5,
                         help="Reject when maximum OpenMax probability is below this value")
