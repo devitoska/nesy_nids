@@ -7,28 +7,53 @@ import time
 import pandas as pd
 
 from bn.utils import load_bn
-from bn.inference import InferenceEngine
+from bn.inference import InferenceEngine, PCEngine
+from bn.pc_build import load_pc
 
-def create_raw_dataset(data, raw_data, inference_engine, bn_path, mode = "train"):
+def create_raw_dataset(data, raw_data, inference_engine, batched, bn_path, mode = "train"):
 
     expls = []
     preds = []
     gts = []
 
-    for i, row in data.iterrows():
-        target_value = inference_engine.predict_from_row(row)
-        gts.append(row['class'])
-        preds.append(target_value)
-        expls.append(raw_data.loc[i, :].to_list()) # raw data as explanation vector (not only markov blanket variables)
+    if batched:
+        # IMPLEMENT HERE
+        batch_size = 50_000
+        for start in range(0, len(data), batch_size):
+            batch = data.iloc[start:start + batch_size]
+            queries = []
+            for i, row in batch.iterrows():
+                evidence = row.to_dict()
+                evidence.pop('class', None)
+                for node, value in list(evidence.items()):
+                    if value not in inference_engine.bn.get_cpds(node).state_names[node]:
+                        evidence.pop(node)
+                queries.append(evidence)
+                gts.append(row['class'])
+                expls.append(raw_data.loc[i, :].to_list())
 
-    # convert to tensors and save
-    expls = torch.tensor(expls, dtype=torch.float32)
+            probabilities = inference_engine.predict_probs_from_evidence(queries)
+            preds.extend(
+                inference_engine.class_values[int(index)]
+                for index in probabilities.argmax(axis=1)
+            )
+
+        expls = torch.tensor(expls, dtype=torch.float32)
+    else:
+        for i, row in data.iterrows():
+            target_value = inference_engine.predict_from_row(row)
+            gts.append(row['class'])
+            preds.append(target_value)
+            expls.append(raw_data.loc[i, :].to_list()) # raw data as explanation vector (not only markov blanket variables)
+
+        # convert to tensors and save
+        expls = torch.tensor(expls, dtype=torch.float32)
    
     torch.save(expls, f"{bn_path}/explanations_{mode}.pt")
     pickle.dump(preds, open(f"{bn_path}/preds_{mode}.pkl", "wb")) # string labels 
     pickle.dump(gts, open(f"{bn_path}/gts_{mode}.pkl", "wb")) # string labels
 
-def create_dataset(data, inference_engine, mb_list, bn_path, mode = "train", unobserved=False):
+def create_dataset(data, inference_engine, batched, mb_list, bn_path, mode = "train", unobserved=False):
     
     expls = []
     preds = []
@@ -36,22 +61,37 @@ def create_dataset(data, inference_engine, mb_list, bn_path, mode = "train", uno
     
     t = tqdm(total=len(data), desc=f"Computing explanations in {bn_path}, mode = {mode} ...")
 
-    for _, row in data.iterrows():
-        t.update(1)
-        # Compute explanation vector for the row, the target is the predicted class
-        target_value, e = inference_engine.get_pred_expl(row, mb_list=mb_list, unobserved=unobserved)
-        gts.append(row['class'])
-        preds.append(target_value)
-        expls.append(e)
+    if batched:
+        # IMPLEMENT HERE
+        batch_size = 50_000
+        for start in range(0, len(data), batch_size):
+            batch = data.iloc[start:start + batch_size]
+            results = inference_engine.get_pred_expl_batch(batch, mb_list, unobserved)
+            gts.extend(batch['class'].tolist())
+            for target_value, explanation in results:
+                preds.append(target_value)
+                expls.append(explanation)
+            t.update(len(batch))
 
-    # convert to tensors and save
-    expls = torch.tensor(expls, dtype=torch.float32)
+        t.close()
+        expls = torch.tensor(expls, dtype=torch.float32)
+    else:
+        for _, row in data.iterrows():
+            t.update(1)
+            # Compute explanation vector for the row, the target is the predicted class
+            target_value, e = inference_engine.get_pred_expl(row, mb_list=mb_list, unobserved=unobserved)
+            gts.append(row['class'])
+            preds.append(target_value)
+            expls.append(e)
+
+        # convert to tensors and save
+        expls = torch.tensor(expls, dtype=torch.float32)
    
     torch.save(expls, f"{bn_path}/explanations_{mode}.pt")
     pickle.dump(preds, open(f"{bn_path}/preds_{mode}.pkl", "wb")) # string labels 
     pickle.dump(gts, open(f"{bn_path}/gts_{mode}.pkl", "wb")) # string labels
 
-def create_expl(exp_name, config, data_path, mode = "train"):
+def create_expl(exp_name, config, inference, data_path, mode = "train"):
     
     # get all subdirectories in bn folder
     bn_paths = sorted(
@@ -86,7 +126,16 @@ def create_expl(exp_name, config, data_path, mode = "train"):
         new_data_raw = new_data_raw.astype("float32")
         
         class_values = bn.get_cpds("class").state_names["class"]
-        inference_engine = InferenceEngine(bn, class_values=class_values)
+
+        batched = False
+
+        if inference == "pgmpy":
+            inference_engine = InferenceEngine(bn, class_values=class_values)
+        else:
+            # load the root of the PC from file
+            root = load_pc(os.path.join(full_path, "pc_root.pkl"))
+            inference_engine = PCEngine(bn, root, class_values=class_values)
+            batched = True
         
         # compute markov blanket variables for "class" variable
         if mode == "train":
@@ -104,12 +153,12 @@ def create_expl(exp_name, config, data_path, mode = "train"):
             
         if config is None:
             t0 = time.time()
-            create_raw_dataset(new_data_mb, new_data_raw, inference_engine, full_path, mode)
+            create_raw_dataset(new_data_mb, new_data_raw, inference_engine, batched, full_path, mode)
             t1 = time.time()
             times[cls] = round(t1 - t0, 2)
         else: 
             t0 = time.time()
-            create_dataset(new_data_mb, inference_engine, mb_list, full_path, mode, unobserved=config.get("unobserved", False))
+            create_dataset(new_data_mb, inference_engine, batched, mb_list, full_path, mode, unobserved=config.get("unobserved", False))
             t1 = time.time()
             times[cls] = round(t1 - t0, 2)
     

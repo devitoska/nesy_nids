@@ -4,7 +4,8 @@ import time
 import logging
 
 from bn.utils import init_bn, load_bn, save_bn_image, save_bn_model, print_bn_info
-from bn.test import test_bn
+from bn.pc_build import bn_to_pc, save_pc
+from bn.test_bn import test_bn
 
 def train_bn(exp_name, config, data_path):
 
@@ -27,9 +28,9 @@ def train_bn(exp_name, config, data_path):
         train_data_current = pd.read_csv(
             os.path.join(partition_path, "train_1_data.csv"), dtype=str,
         )
-        test_data = pd.read_csv(
-            os.path.join(partition_path, "test_data.csv"), dtype=str,
-        )
+        #test_data = pd.read_csv(
+        #    os.path.join(partition_path, "test_data.csv"), dtype=str,
+        #)
         if train_data_current["class"].eq(cls).any():
             raise ValueError(f"Unknown class {cls} found in BN training data")
 
@@ -61,15 +62,21 @@ def train_bn(exp_name, config, data_path):
         # save full bn image only
         save_bn_image(full_bn, base_save_path, file_name="full_bn.png")
 
+        # convert bn to pc and save it
+        root = bn_to_pc(bn, max_nodes = 1_000_000)
+        save_pc(root, os.path.join(base_save_path, "pc_root.pkl"))
+
+        '''Optional testing phase'''
+
         # Reload because save_bn_model/save_bn_image might modify the bn object (unexpected)
-        bn = load_bn(base_save_path)
-        mb_list = sorted(bn.get_markov_blanket("class"))
+        #bn = load_bn(base_save_path)
+        #mb_list = sorted(bn.get_markov_blanket("class"))
 
         # Project validation data on Markov Blanket variables + class
-        test_data_mb = test_data[mb_list + ["class"]]
+        #test_data_mb = test_data[mb_list + ["class"]]
 
         # Evaluate BN Performance on Validation Set
-        test_bn(bn, test_data_mb, base_save_path, unknown_class=cls)
+        #test_bn(bn, test_data_mb, base_save_path, inference = config.get("inference", "pgmpy"), unknown_class=cls)
 
     logging.info(f"Times for creating bayesian network for each unknown class:")
     for cls, t in times.items():

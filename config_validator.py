@@ -81,6 +81,12 @@ validation_schema = {
         "type": "dict",
         "required": False,
         "schema": {
+          "inference" : {
+            "type" : "string",
+            "required" : True,
+            "allowed" : ["pgmpy", "pyjuice"],
+            "default" : "pgmpy"  
+          },
           "structure_learning": {
             "type": "dict",
             "required": True,

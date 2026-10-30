@@ -36,12 +36,15 @@ if __name__ == "__main__":
         with record_stage_time(path_to_exp, "test"):
             # Create explanation vectors for Test partition
             if not args.no_expl:
-                create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", None),
-                            config.get("dataset_path", "data/dataset/ton-iot_net"), mode="test")
+                explanation_config = config["algorithm"]["anomaly_detection"].get("explanations", None)
+                inference = config["algorithm"]["bayesian_network"].get("inference", "pgmpy")
+                dataset_path = config.get("dataset_path", "data/dataset/ton-iot_net")
+                create_expl(exp_name, explanation_config, inference, dataset_path, mode="test")
 
             if not args.no_ad:
+                ad_config = config["algorithm"].get("anomaly_detection")
                 # Test anomaly detection model
-                test_ad(exp_name, config["algorithm"].get("anomaly_detection"))
+                test_ad(exp_name, ad_config)
 
                 # Create metrics table
                 create_metrics_table(path_to_exp)

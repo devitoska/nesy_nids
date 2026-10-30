@@ -9,7 +9,7 @@ dependencies:
   - pyparsing==3.2.5
   - pygraphviz
   - pandas==2.3.3
-  - numpy<2.0
+  - numpy=1.26.4
   - tqdm==4.67.1
   - opt-einsum==3.4.0
   - pyro-ppl==1.9.1
@@ -24,8 +24,11 @@ dependencies:
   - scipy #==1.18.1
   - pip
   - pip:
+    # Keep pip's resolver consistent with the Conda NumPy pin.
+    - numpy==1.26.4
     - optbinning<1.0.0
     - ortools<9.8
     - cython
     - setuptools
     - wheel
+    - pyjuice==2.6.3

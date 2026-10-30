@@ -101,18 +101,24 @@ if __name__ == "__main__":
             random.seed(seed)
 
             if not args.exp_path:
+                dataset_path = config.get("dataset_path", "data/dataset/ton-iot_net")
+                
                 # Train Bayesian Network
                 with time_phase(timing_path, timings, "bn"):
-                    train_bn(exp_name, config["algorithm"].get("bayesian_network"), config.get("dataset_path", "data/dataset/ton-iot_net"))
+                    bn_config = config["algorithm"].get("bayesian_network")
+                    train_bn(exp_name, bn_config, dataset_path)
 
                 # Create explanation vectors for Train 2 partition
                 with time_phase(timing_path, timings, "explanations"):
-                    create_expl(exp_name, config["algorithm"]["anomaly_detection"].get("explanations", None), config.get("dataset_path", "data/dataset/ton-iot_net"))
+                    inference = config["algorithm"]["bayesian_network"].get("inference", "pgmpy")
+                    explanation_config = config["algorithm"]["anomaly_detection"].get("explanations", None)
+                    create_expl(exp_name, explanation_config, inference, dataset_path)
 
             if not args.no_ad:
                 # Train anomaly detection model
                 with time_phase(timing_path, timings, "ad"):
-                    train_ad(exp_name, config["algorithm"].get("anomaly_detection"), seed)
+                    ad_config = config["algorithm"].get("anomaly_detection")
+                    train_ad(exp_name, ad_config, seed)
 
     except Exception as e:
         logging.error(traceback.format_exc())

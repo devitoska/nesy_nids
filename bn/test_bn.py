@@ -5,11 +5,14 @@ import os
 import pandas as pd
 from sklearn.metrics import confusion_matrix, classification_report
 
-from bn.inference import InferenceEngine
+from bn.inference import InferenceEngine, PCEngine
 
-def test_bn(bn : DiscreteBayesianNetwork, data : pd.DataFrame, base_path : str, unknown_class : str):
+def test_bn(bn : DiscreteBayesianNetwork, data : pd.DataFrame, base_path : str, inference: str, unknown_class : str):
     class_values = bn.get_cpds("class").state_names["class"]
-    inference_engine = InferenceEngine(bn, class_values=class_values)
+    if inference == "pgmpy":
+        inference_engine = InferenceEngine(bn, class_values=class_values)
+    else:
+        inference_engine = PCEngine(bn, class_values=class_values)
     preds = []
     gts = []
     progress_bar = tqdm(total=len(data), desc="Testing BN")
