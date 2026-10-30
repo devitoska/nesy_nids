@@ -9,7 +9,10 @@ from scipy.stats import t
 
 
 TRAINING_PHASES = (
-    ("bn_seconds", "Bayesian network", "#4477AA"),
+    ("train_bn_seconds", "BN training", "#4477AA"),
+    ("bn_to_pc_seconds", "PC construction / cache", "#66CCEE"),
+    ("test_bn_seconds", "BN testing", "#AA3377"),
+    ("bn_seconds", "BN (legacy, unsplit)", "#999933"),
     ("explanations_seconds", "Explanations", "#228833"),
     ("ad_seconds", "Anomaly detection", "#EEAA33"),
     ("other_seconds", "Other / overhead", "#BBBBBB"),
@@ -37,10 +40,20 @@ def read_timing_summary(path, groups):
     Repeated experiment rows represent reruns: the last row wins. EFC uses
     only its last recorded evaluation, with no averaging or uncertainty.
     Null NeSy phase durations mean skipped phases (zero elapsed time).
+    Legacy BN timings remain unsplit; new BN totals are not counted twice.
     Only evaluated experiment groups supplied by the caller are included.
     """
     path = Path(path)
     table = pd.read_csv(path, sep="\t", dtype={"experiment": str})
+    bn_phases = ["train_bn_seconds", "bn_to_pc_seconds", "test_bn_seconds"]
+    present = [key in table.columns for key in bn_phases]
+    if all(present):
+        if "bn_seconds" not in table:
+            table["bn_seconds"] = np.nan
+        # bn_seconds is an aggregate compatibility column in new batch rows.
+        table.loc[table[bn_phases].notna().any(axis=1), "bn_seconds"] = np.nan
+    elif not any(present) and "bn_seconds" in table:
+        table[bn_phases] = np.nan
     phases = [key for key, _, _ in TRAINING_PHASES[:-1]]
     required = ["experiment", "train_seconds", "test_seconds", *phases]
     missing = set(required) - set(table.columns)
@@ -81,7 +94,7 @@ def read_timing_summary(path, groups):
         if kind == "NeSy-NIDS":
             remainder = values["train_seconds"] - values[phases].sum(axis=1)
             # TSV durations are rounded independently to six decimal places.
-            tolerance = 2e-6 + 1e-12 * values["train_seconds"]
+            tolerance = 0.5e-6 * (len(phases) + 1) + 1e-12 * values["train_seconds"]
             if (remainder < -tolerance).any():
                 raise ValueError(f"{path}: {name} training phases exceed the training total")
             values["other_seconds"] = remainder.clip(lower=0)
@@ -119,14 +132,18 @@ def timing_figures(summary):
         sampling = "single run" if item["algorithm"] == "EFC" else f"n = {item['n']}"
         labels.append(textwrap.fill(item["name"], width=24) + f"\n{item['algorithm']} ({sampling})")
     width = max(9, 2.4 * len(summary) + 2)
+    phases = [phase for phase in TRAINING_PHASES
+              if phase[0] != "bn_seconds" or any(
+                  item["algorithm"] == "NeSy-NIDS" and item["means"]["bn_seconds"] > 0
+                  for item in summary)]
     figures = []
     for stage in ("train", "test"):
         training = stage == "train"
         has_phases = training and any(item["algorithm"] == "NeSy-NIDS" for item in summary)
-        figure = Figure(figsize=(width, 9 if has_phases else 6.5), dpi=160)
+        figure = Figure(figsize=(width, 10 if has_phases else 6.5), dpi=160)
         FigureCanvasAgg(figure)
         if has_phases:
-            grid = figure.add_gridspec(2, 1, height_ratios=[3.5, 1.3], hspace=0.55)
+            grid = figure.add_gridspec(2, 1, height_ratios=[3.5, 2], hspace=0.55)
             ax = figure.add_subplot(grid[0])
             detail_ax = figure.add_subplot(grid[1])
             detail_ax.axis("off")
@@ -142,7 +159,7 @@ def timing_figures(summary):
             totals.append(mean)
             if training and kind == "NeSy-NIDS":
                 bottom = 0
-                for key, label, color in TRAINING_PHASES:
+                for key, label, color in phases:
                     height = item["means"][key]
                     ax.bar(index, height, bottom=bottom, width=0.62, color=color,
                            label=label if label not in legend_labels else None)
@@ -167,7 +184,7 @@ def timing_figures(summary):
         if has_phases:
             ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.01), ncol=3, frameon=False, fontsize=9)
             cells = []
-            for key, _, _ in TRAINING_PHASES:
+            for key, _, _ in phases:
                 cells.append([
                     format_seconds(item["means"][key], item["stds"][key])
                     if item["algorithm"] == "NeSy-NIDS" else "—"
@@ -176,7 +193,7 @@ def timing_figures(summary):
             # The table keeps short phase measurements legible even when their
             # stack segment is too small to contain an annotation.
             table = detail_ax.table(cellText=cells,
-                                    rowLabels=[label for _, label, _ in TRAINING_PHASES],
+                                    rowLabels=[label for _, label, _ in phases],
                                     colLabels=[textwrap.fill(item["name"], width=24) for item in summary],
                                     cellLoc="center", loc="center", bbox=[0, 0, 1, 1])
             table.auto_set_font_size(False)
@@ -186,7 +203,7 @@ def timing_figures(summary):
                 if row == 0:
                     cell.set_facecolor("#F2F4F6")
                 elif column == -1:
-                    cell.set_facecolor(TRAINING_PHASES[row - 1][2])
+                    cell.set_facecolor(phases[row - 1][2])
         figure.text(0.5, 0.035,
                     "Seconds rounded to integers; subscript: ± sample SD across seeds (n/a for one seed).\n"
                     "EFC: one recorded run, without averaging or SD."

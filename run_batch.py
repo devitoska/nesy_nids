@@ -3,7 +3,8 @@
 Explicit config seeds are used in order; otherwise --num_seed seeds are sampled.
 EFC runs once per config, using the first seed when explicitly configured.
 Append tab-separated experiment, total_seconds, train_seconds, test_seconds,
-bn_seconds, explanations_seconds, ad_seconds to results/times after each
+bn_seconds, explanations_seconds, ad_seconds, train_bn_seconds,
+bn_to_pc_seconds, test_bn_seconds to results/times after each
 experiment. All algorithms retain train/test totals in each run's timings.json;
 baseline phase columns, like skipped NeSy phases, are null. At most --threads
 subprocesses run at once, with training preceding testing for each experiment.
@@ -14,6 +15,7 @@ groups are terminated and queued work cancelled.
 """
 
 import argparse
+import csv
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 import json
 import math
@@ -32,6 +34,42 @@ import torch
 import yaml
 
 from config_validator import validate_config
+
+
+BN_PHASE_KEYS = ("train_bn_seconds", "bn_to_pc_seconds", "test_bn_seconds")
+LEGACY_TIMING_COLUMNS = (
+    "experiment", "total_seconds", "train_seconds", "test_seconds",
+    "bn_seconds", "explanations_seconds", "ad_seconds",
+)
+TIMING_COLUMNS = LEGACY_TIMING_COLUMNS + BN_PHASE_KEYS
+
+
+def prepare_timing_file(path):
+    """Upgrade the old TSV before appending rows, preserving historical values."""
+    if path.exists() and path.stat().st_size:
+        with path.open(encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle, delimiter="\t")
+            columns = tuple(next(reader, []))
+            if columns == TIMING_COLUMNS:
+                return
+            rows = list(reader)
+        if columns != LEGACY_TIMING_COLUMNS:
+            raise ValueError(f"{path}: unrecognized timing header; file left unchanged")
+        if any(len(row) != len(columns) for row in rows):
+            raise ValueError(f"{path}: malformed timing row; file left unchanged")
+        rows = [list(TIMING_COLUMNS)] + [row + ["null"] * 3 for row in rows]
+    else:
+        rows = [list(TIMING_COLUMNS)]
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                                         dir=path.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            csv.writer(handle, delimiter="\t", lineterminator="\n").writerows(rows)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 # Seed inside each child process as well: subprocesses do not inherit RNG state.
@@ -177,9 +215,18 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
         train_timings = json.load(timing_file)
     if train_timings["status"] != "trained":
         raise RuntimeError(f"Training did not complete for {name}")
-    phase_times = "null\tnull\tnull" if baseline else "\t".join(
-        "null" if train_timings[key] is None else f"{train_timings[key]:.6f}"
-        for key in ("bn_seconds", "explanations_seconds", "ad_seconds")
+    phase_values = [None] * 6
+    if not baseline:
+        bn_phases = [train_timings.get(key) for key in BN_PHASE_KEYS]
+        if any(key in train_timings for key in BN_PHASE_KEYS):
+            measured = [value for value in bn_phases if value is not None]
+            bn_total = sum(measured) if measured else None
+        else:
+            bn_total = train_timings["bn_seconds"]
+        phase_values = [bn_total, train_timings["explanations_seconds"],
+                        train_timings["ad_seconds"], *bn_phases]
+    phase_times = "\t".join(
+        "null" if value is None else f"{value:.6f}" for value in phase_values
     )
     processes.run_script(project_dir, test_script, test_arguments, seed)
     finished = time.perf_counter()
@@ -192,6 +239,7 @@ def run_experiment(project_dir, run_config, name, seed, times_path, times_lock, 
     test_elapsed = timings["test_seconds"]
     # Serialize appends and close after each experiment to save its row promptly.
     with times_lock:
+        prepare_timing_file(times_path)
         with times_path.open("a", encoding="utf-8") as times_file:
             times_file.write(
                 f"{name}\t{elapsed:.6f}\t{train_elapsed:.6f}\t{test_elapsed:.6f}"
@@ -355,13 +403,7 @@ def main():
     results_dir = project_dir / "results"
     results_dir.mkdir(exist_ok=True)
     times_path = results_dir / "times"
-    header = (
-        "experiment\ttotal_seconds\ttrain_seconds\ttest_seconds\t"
-        "bn_seconds\texplanations_seconds\tad_seconds\n"
-    )
-    existing_times = times_path.read_text(encoding="utf-8") if times_path.exists() else ""
-    if not existing_times.startswith(header):
-        times_path.write_text(header + existing_times, encoding="utf-8")
+    prepare_timing_file(times_path)
 
     with tempfile.TemporaryDirectory(prefix="nesy_nids_batch_") as temporary_dir:
         experiments = []

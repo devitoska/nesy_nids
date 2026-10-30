@@ -84,10 +84,14 @@ Batch runs invoke the corresponding train and test scripts and save each run in
 `train_1_raw_data.csv`, `train_2_raw_data.csv`, and `test_raw_data.csv`.
 All algorithms save `timings.json` inside their experiment directory, containing
 `train_seconds`, `test_seconds`, and a completion status. NeSy-NIDS additionally
-records training durations and statuses for its BN, explanation, and anomaly
-detection phases. Training resets this file; testing preserves training details.
+records durations and statuses for BN training, PC/cache construction, BN testing,
+explanation generation, and anomaly detection training. Training resets this file;
+testing preserves training details.
 After successful testing, the batch runner appends the durations to `results/times`
-and retains the JSON. Baselines have `null` in the three NeSy-only phase columns.
+and retains the JSON. The TSV includes `train_bn_seconds`, `bn_to_pc_seconds`, and
+`test_bn_seconds`; `bn_seconds` retains their sum for compatibility. Baselines have
+`null` in all NeSy-only phase columns. Existing TSVs are upgraded without discarding
+rows, and reports retain older BN durations as an unsplit phase.
 Stage durations measure work inside the scripts; the batch total also includes
 subprocess startup and shutdown. Failed stages retain their elapsed time with
 status `failed` and do not produce a successful batch timing row.

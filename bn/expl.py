@@ -8,7 +8,7 @@ import pandas as pd
 
 from bn.utils import load_bn
 from bn.inference import InferenceEngine, PCEngine
-from bn.pc_build import load_pc
+from bn.pc_inf import load_pc
 
 def create_raw_dataset(data, raw_data, inference_engine, batched, bn_path, mode = "train"):
 

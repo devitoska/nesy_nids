@@ -3,7 +3,7 @@ from pgmpy.inference import VariableElimination
 import pandas as pd
 
 from pyjuice.nodes import CircuitNodes
-from bn.pc_build import PCInference
+from bn.pc_inf import PCInference
 
 # using exact algorithm Variable Elimination for inference
 class InferenceEngine:

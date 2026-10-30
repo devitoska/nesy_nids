@@ -11,11 +11,13 @@ import time
 import random
 
 from bn.train_bn import train_bn
+from bn.test_bn import test_bn
+from bn.pc_build import bn_to_pc_loop
 from bn.expl import create_expl
 from ad.train_ad import train_ad
+
 from config_validator import validate_config
 from baseline_wrappers.utils_baselines import record_stage_time
-
 
 def save_timings(path, timings):
     with open(path, "w", encoding="utf-8") as timing_file:
@@ -78,13 +80,18 @@ if __name__ == "__main__":
             config["seed"] = seed
         experiment_dir = os.path.join("results", exp_name)
         timing_path = os.path.join(experiment_dir, "timings.json")
+
         with record_stage_time(experiment_dir, "train") as timings:
             timings.update({
-                "bn_seconds": None,
+                "train_bn_seconds": None,
+                "test_bn_seconds": None,
+                "bn_to_pc_seconds": None,
                 "explanations_seconds": None,
                 "ad_seconds": None,
                 "phase_status": {
-                    "bn": "skipped" if args.exp_path else "pending",
+                    "train_bn": "skipped" if args.exp_path else "pending",
+                    "test_bn": "skipped" if args.exp_path else "pending",
+                    "bn_to_pc": "skipped" if args.exp_path else "pending",
                     "explanations": "skipped" if args.exp_path else "pending",
                     "ad": "skipped" if args.no_ad else "pending",
                 },
@@ -102,11 +109,21 @@ if __name__ == "__main__":
 
             if not args.exp_path:
                 dataset_path = config.get("dataset_path", "data/dataset/ton-iot_net")
-                
+                inference = config["algorithm"]["bayesian_network"].get("inference", "pgmpy")
+
                 # Train Bayesian Network
-                with time_phase(timing_path, timings, "bn"):
+                with time_phase(timing_path, timings, "train_bn"):
                     bn_config = config["algorithm"].get("bayesian_network")
                     train_bn(exp_name, bn_config, dataset_path)
+
+                if inference == "pyjuice":
+                    # Convert BN to PC and prepare CUDA caches before testing.
+                    with time_phase(timing_path, timings, "bn_to_pc"):
+                        bn_to_pc_loop(exp_name, max_nodes = 1_000_000)
+
+                # Test Bayesian Network
+                with time_phase(timing_path, timings, "test_bn"):
+                    test_bn(exp_name, bn_config, dataset_path)
 
                 # Create explanation vectors for Train 2 partition
                 with time_phase(timing_path, timings, "explanations"):
