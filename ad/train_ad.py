@@ -113,6 +113,7 @@ def train_ad(exp_name, config, seed):
                 model.load(exp_name, unknown_cls, class_names[cls])
             
             if model_cls is AE:
+                # if only_load is True, we still need to do calibration
                 model.train(data, seed, only_load=only_load, correctness_mask=correctness_mask)
             elif not only_load:
                 model.train(data, seed)

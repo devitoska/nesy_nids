@@ -3,13 +3,11 @@ from contextlib import contextmanager
 import json
 import yaml
 import os
-import numpy as np
-import torch
 import logging
 import traceback
 import time
-import random
 
+from utils import reseed
 from bn.train_bn import train_bn
 from bn.test_bn import test_bn
 from bn.pc_build import bn_to_pc_loop
@@ -103,9 +101,7 @@ if __name__ == "__main__":
                 yaml.dump(config, f)
 
             # Defining seeds for reproducibility
-            np.random.seed(seed)
-            torch.manual_seed(seed)
-            random.seed(seed)
+            reseed(seed)
 
             if not args.exp_path:
                 dataset_path = config.get("dataset_path", "data/dataset/ton-iot_net")
@@ -119,12 +115,12 @@ if __name__ == "__main__":
                 if inference == "pyjuice":
                     # Convert BN to PC and prepare CUDA caches before testing.
                     with time_phase(timing_path, timings, "bn_to_pc"):
-                        bn_to_pc_loop(exp_name, max_nodes = 1_000_000)
+                        bn_to_pc_loop(exp_name, max_nodes = 1_000_000_000)
 
                 # Test Bayesian Network
                 with time_phase(timing_path, timings, "test_bn"):
                     test_bn(exp_name, bn_config, dataset_path)
-
+                
                 # Create explanation vectors for Train 2 partition
                 with time_phase(timing_path, timings, "explanations"):
                     inference = config["algorithm"]["bayesian_network"].get("inference", "pgmpy")
@@ -132,6 +128,9 @@ if __name__ == "__main__":
                     create_expl(exp_name, explanation_config, inference, dataset_path)
 
             if not args.no_ad:
+                # Reseeding before training the anomaly detection model to ensure reproducibility
+                reseed(seed)
+                
                 # Train anomaly detection model
                 with time_phase(timing_path, timings, "ad"):
                     ad_config = config["algorithm"].get("anomaly_detection")

@@ -3,7 +3,8 @@ import pandas as pd
 import json
 import numpy as np
 from sklearn.metrics import confusion_matrix, classification_report, roc_curve, roc_auc_score, precision_recall_curve, auc, recall_score
-
+import torch
+import random
 
 def compute_metrics(y_gt_bin, y_pred_bin, y_gt_mul, y_pred_mul, ad_scores):
     pr, rc, _ = precision_recall_curve(y_gt_bin, ad_scores)
@@ -54,3 +55,8 @@ def create_metrics_table(exp_path):
 
     # save dataframe to csv
     df.to_csv(os.path.join(exp_path, "metrics/table.csv"))
+
+def reseed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    random.seed(seed)

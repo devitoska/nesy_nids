@@ -94,10 +94,9 @@ class AE:
         val_data = torch.tensor(data[val_indices], dtype=torch.float32, device=self.device)
         calib_data = torch.tensor(data[calib_indices], dtype=torch.float32, device=self.device)
 
-        # Training loop
-        self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim, type=self.type).to(self.device)
-
         if not only_load:
+            # Training loop
+            self.model = AENet(input_dim=train_data.shape[1], latent_dim=self.latent_dim, type=self.type).to(self.device)
             if self.loss == "l2":
                 loss_fn = torch.nn.MSELoss()
             elif self.loss == "huber":
