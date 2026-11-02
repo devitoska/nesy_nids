@@ -113,6 +113,13 @@ validation_schema = {
                     "min": 0,
                     "default": 10
                   },
+                  "max_outdegree": {
+                    "type": "integer",
+                    "required": False,
+                    "nullable": True,
+                    "min": 0,
+                    "default": None
+                  },
                   "tabu_length": {
                     "type": "integer",
                     "required": False,
