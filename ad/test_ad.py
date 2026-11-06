@@ -7,6 +7,8 @@ import logging
 from bn.utils import load_bn
 from ad._if import IF
 from ad._ae import AE
+from ad._ocsvm import OCSVM
+from ad._deepsvdd import DeepSVDD
 from ad.utils import transform_explanations
 from utils import compute_metrics
  
@@ -22,6 +24,10 @@ def test_ad(exp_name, config):
         model_cls = IF
     elif config["method"] == "AE":
         model_cls = AE
+    elif config["method"] == "OCSVM":
+        model_cls = OCSVM
+    elif config["method"] == "DeepSVDD":
+        model_cls = DeepSVDD
 
     loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)

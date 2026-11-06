@@ -10,6 +10,8 @@ from sklearn.preprocessing import RobustScaler
 from bn.utils import load_bn
 from ad._if import IF
 from ad._ae import AE
+from ad._ocsvm import OCSVM
+from ad._deepsvdd import DeepSVDD
 from ad.utils import transform_explanations
  
 def train_ad(exp_name, config, seed):
@@ -27,6 +29,10 @@ def train_ad(exp_name, config, seed):
         model_cls = IF
     elif config["method"] == "AE":
         model_cls = AE
+    elif config["method"] == "OCSVM":
+        model_cls = OCSVM
+    elif config["method"] == "DeepSVDD":
+        model_cls = DeepSVDD
 
     loss = config.get("loss", "l2")
     rejection_rate = config.get("rejection_rate", 0.01)
@@ -112,7 +118,7 @@ def train_ad(exp_name, config, seed):
             if only_load:
                 model.load(exp_name, unknown_cls, class_names[cls])
             
-            if model_cls is AE:
+            if model_cls in (AE, OCSVM, DeepSVDD):
                 # if only_load is True, we still need to do calibration
                 model.train(data, seed, only_load=only_load, correctness_mask=correctness_mask)
             elif not only_load:
