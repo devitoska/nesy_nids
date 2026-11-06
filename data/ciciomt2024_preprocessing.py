@@ -5,13 +5,17 @@ from sklearn.model_selection import train_test_split
 from utils import preprocess_loop
 
 random_state = 42
-num_bins = 50
+num_bins = 30
 
 def preprocess(train_data, test_data, output_dir="data/dataset/CICIOMT-2024", mode = "base"):
     
     # remove leading spaces in column names and convert to lowercase
     train_data.columns = [col.lower().strip() for col in train_data.columns]
     test_data.columns = [col.lower().strip() for col in test_data.columns]
+
+    # replace "-" and "_" in class values with "+"
+    train_data["class"] = train_data["class"].str.replace("-", "+").str.replace("_", "+")
+    test_data["class"] = test_data["class"].str.replace("-", "+").str.replace("_", "+")
 
     # assert train_data and test_data have the same columns
     assert set(train_data.columns) == set(test_data.columns), "Train and test data have different columns"
