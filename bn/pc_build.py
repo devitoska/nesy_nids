@@ -3,6 +3,7 @@ from numbers import Integral
 from typing import Hashable
 import pickle
 import os
+import logging
 
 import networkx as nx
 import torch
@@ -14,7 +15,8 @@ from pgmpy.models import DiscreteBayesianNetwork
 
 from bn.pc_utils import (
     _atomic_pc_file, _pc_cache_key, _attach_cache_location,
-    _save_compiled_pc, optimize_variable_order,
+    _save_compiled_pc, _choose_elimination_order, _elimination_plan,
+    _align_factor, _project_assignments, _pc_postorder,
     # Old sidecars pickle these names under bn.pc_build. Keep them importable.
     _restore_cached_node, _restore_cached_region,
 )
@@ -25,42 +27,30 @@ def bn_to_pc(
     bn: DiscreteBayesianNetwork,
     *,
     variable_order: Sequence[Hashable] | None = None,
+    elimination_order: Sequence[Hashable] | None = None,
     max_nodes: int | None = 1_000_000,
 ) -> "CircuitNodes":
-    """Return a fully parameterized PyJuice circuit for ``bn``'s joint law.
+    """Compile the full BN joint law by exact, packed bucket elimination.
 
-    Args:
-        bn: Nonempty fitted pgmpy DiscreteBayesianNetwork with TabularCPDs.
-            The model and its CPDs are never modified.
-        variable_order: Optional topological ordering containing every BN node
-            exactly once. Controls both conditioning order and input columns.
-            Defaults to a topological order optimized for estimated internal
-            circuit size. The bounded search falls back to NetworkX's order
-            if its search budget is exhausted. Explicit orders are preserved.
-        max_nodes: Maximum number of scalar circuit nodes constructed, including
-            leaves and wrapper nodes. None disables the limit. This is not a
-            memory limit on subsequent PyJuice compilation.
+    ``variable_order`` controls input columns and retains the historical
+    topological-order requirement. ``elimination_order`` may be any permutation;
+    by default a weighted factor-scope heuristic minimizes estimated scalar
+    circuit size. No BN edges, CPT entries, states, or evidence are approximated.
 
-    Returns:
-        A PyJuice SumNodes root accepted by ``pyjuice.compile``. Metadata:
-        ``bn_variable_order`` is the tuple of original variable names;
-        ``bn_state_names`` maps names to tuples of original state labels;
-        ``bn_state_to_index`` maps names to label-to-integer dictionaries;
-        ``bn_num_nodes`` records the number of circuit nodes constructed.
-        Metadata belongs to this root, not automatically to a TensorCircuit or
-        a serialized/reloaded copy.
+    Each bucket emits a vector of normalized subcircuits, indexed by its
+    separator assignments, plus log probability masses for subsequent buckets.
+    Keeping masses separate is essential: PyJuice normalizes sum weights when
+    compiling. Products combine disjoint eliminated-variable scopes; sums mix
+    equal scopes. The final circuit supports arbitrary marginal/conditional
+    queries, not only a fixed evidence pattern.
 
-    Raises:
-        TypeError: Unsupported model/CPDs or a noninteger node limit.
-        ValueError: Empty/invalid BN, invalid order, or invalid probabilities.
-        ImportError: PyJuice is unavailable.
-        RuntimeError: Construction would exceed max_nodes.
-
-    Each sum branches on one variable with its original conditional weights.
-    Products combine disjoint scopes, and every branch of a sum has the same
-    scope. Disconnected remaining components factor given their boundary
-    parents. These properties preserve the full joint distribution, hence also
-    all marginal/conditional queries with nonzero conditioning probability.
+    Packing uses indexed multi-node groups with block_size=1, avoiding a Python
+    object per scalar node and dense all-to-all sum connectivity. Complexity is
+    still exponential in induced separator cardinality, not bounded by degree.
+    ``max_nodes`` limits scalar nodes, not groups or bytes; None disables it.
+    Metadata records input/elimination orders, state labels, actual node counts,
+    and dense factor-size estimates. ``bn_log_scale`` retains numerical mass
+    accumulated during normalization and is applied by PCInference.
     """
     if not isinstance(bn, DiscreteBayesianNetwork):
         raise TypeError("bn must be a pgmpy DiscreteBayesianNetwork.")
@@ -79,122 +69,106 @@ def bn_to_pc(
     if not bn.check_model():
         raise ValueError("The Bayesian network failed check_model().")
 
-    order = tuple(optimize_variable_order(bn) if variable_order is None else variable_order)
+    order = tuple(nx.topological_sort(bn) if variable_order is None else variable_order)
     if len(order) != len(bn.nodes) or set(order) != set(bn.nodes):
         raise ValueError("variable_order must contain every BN node exactly once.")
     indices = {node: i for i, node in enumerate(order)}
     if any(indices[u] >= indices[v] for u, v in bn.edges):
         raise ValueError("variable_order must be a topological ordering of the BN.")
+    cards = tuple(int(bn.get_cpds(node).variable_card) for node in order)
+    scopes = [tuple(indices[v] for v in bn.get_cpds(node).variables) for node in order]
+    if elimination_order is None:
+        elimination = _choose_elimination_order(scopes, cards)
+    else:
+        elimination_order = tuple(elimination_order)
+        if len(elimination_order) != len(order) or set(elimination_order) != set(order):
+            raise ValueError("elimination_order must contain every BN node exactly once.")
+        elimination = tuple(indices[v] for v in elimination_order)
+    plan = _elimination_plan(scopes, cards, elimination)
+    if max_nodes is not None and plan["scalar_nodes"] > max_nodes:
+        raise RuntimeError(
+            f"Exact BN conversion exceeded max_nodes={max_nodes}: selected elimination "
+            f"order requires {plan['scalar_nodes']} scalar nodes in {plan['node_groups']} "
+            "packed groups. Try another elimination_order or increase max_nodes; "
+            "no approximate circuit was returned."
+        )
 
-    # Keep the CPD's parent-axis order, which need not match graph insertion order.
-    parents, tables, state_names = {}, {}, {}
-    for i, node in enumerate(order):
+    factors, state_names = [], {}
+    for node, scope in zip(order, scopes):
         cpd = bn.get_cpds(node)
-        parents[i] = tuple(indices[parent] for parent in cpd.variables[1:])
-        shape = tuple(int(card) for card in cpd.cardinality)
         values = torch.as_tensor(cpd.get_values()).detach().to(
             device="cpu", dtype=torch.float64
-        ).clone().reshape(shape)
+        ).clone().reshape(tuple(cards[v] for v in scope))
         if not torch.isfinite(values).all() or (values < 0).any() or (values > 1).any():
             raise ValueError(f"CPD for {node!r} has invalid probabilities.")
         totals = values.sum(dim=0)
         if not torch.allclose(totals, torch.ones_like(totals), rtol=1e-7, atol=1e-8):
             raise ValueError(f"CPD for {node!r} is not normalized.")
-        tables[i] = values
+        factors.append((scope, values.log(), None))
         state_names[node] = tuple(cpd.state_names[node])
 
-    graph = nx.Graph()
-    graph.add_nodes_from(range(len(order)))
-    graph.add_edges_from((indices[u], indices[v]) for u, v in bn.edges)
-    memo, layouts, leaves = {}, {}, {}
-    node_count = 0
-
-    def reserve_node():
-        nonlocal node_count
-        if max_nodes is not None and node_count >= max_nodes:
-            raise RuntimeError(
-                f"Exact BN conversion exceeded max_nodes={max_nodes}. "
-                "Try another topological variable_order or increase the limit; "
-                "no approximate circuit was returned."
-            )
-        node_count += 1
-
-    def leaf(var, probabilities):
-        key = (var, tuple(probabilities.tolist()))
-        if key not in leaves:
-            reserve_node()
-            ns = juice.inputs(
-                var, num_nodes=1, block_size=1,
-                dist=Categorical(num_cats=len(probabilities)),
-            )
-            # Do not silently renormalize CPTs or add probability to zero states.
-            ns.set_params(probabilities.clone(), normalize=False)
-            leaves[key] = ns
-        return leaves[key]
-
-    def product(children):
-        reserve_node()
-        return juice.multiply(*children)
-
-    def mixture(children, weights):
-        reserve_node()
-        ns = juice.summate(*children, num_nodes=1, block_size=1)
-        ns.set_params(torch.tensor(weights, dtype=torch.float64), normalize=False)
+    def inputs(var, probabilities):
+        ns = juice.inputs(var, num_nodes=probabilities.shape[0], block_size=1,
+                          dist=Categorical(num_cats=cards[var]))
+        ns.set_params(probabilities, normalize=False)
         return ns
 
-    def build(scope, assignments):
-        if scope not in layouts:
-            remaining = set(scope)
-            boundary = tuple(sorted({
-                parent for var in scope for parent in parents[var]
-                if parent not in remaining
-            }))
-            components = tuple(sorted(
-                (tuple(sorted(c)) for c in nx.connected_components(graph.subgraph(scope))),
-                key=lambda c: c[0],
-            ))
-            layouts[scope] = boundary, components
-        boundary, components = layouts[scope]
-        context = {var: assignments[var] for var in boundary}
-        key = scope, tuple(context[var] for var in boundary)
-        if key in memo:
-            return memo[key]
-
-        if len(components) > 1:
-            # A unit-weight sum keeps the product/sum alternation PyJuice requires.
-            children = [build(component, context) for component in components]
-            ns = mixture([product(children)], [1.0])
+    for var, separator, entries, _ in plan["steps"]:
+        bucket = [factor for factor in factors if var in factor[0]]
+        factors = [factor for factor in factors if var not in factor[0]]
+        target = (*separator, var)
+        coefficients = torch.zeros(tuple(cards[v] for v in target), dtype=torch.float64)
+        messages = []
+        for scope, log_values, node in bucket:
+            coefficients.add_(_align_factor(log_values, scope, target, cards))
+            if node is not None:
+                messages.append((scope, node))
+        log_mass = torch.logsumexp(coefficients, dim=-1)
+        # An unreachable separator row may use any normalized subcircuit: its
+        # outgoing mass remains exactly zero. Avoid -inf - -inf and NaNs.
+        reachable = torch.isfinite(log_mass)
+        log_weights = coefficients - torch.where(reachable, log_mass, 0.0).unsqueeze(-1)
+        weights = log_weights.exp().reshape(-1, cards[var])
+        if ((weights == 0) & torch.isfinite(log_weights.reshape_as(weights))).any():
+            raise ValueError("Elimination weights underflow float64; no approximate circuit was returned.")
+        weights[~reachable.reshape(-1), 0] = 1.0
+        if not messages:
+            node = inputs(var, weights)
         else:
-            var = scope[0]  # Topological order: every parent is already assigned.
-            probabilities = tables[var][
-                (slice(None),) + tuple(context[parent] for parent in parents[var])
-            ]
-            if len(scope) == 1:
-                ns = leaf(var, probabilities)
-            else:
-                branches, weights = [], []
-                for state, probability in enumerate(probabilities.tolist()):
-                    if probability == 0.0:
-                        continue  # Only mathematically zero branches are removed.
-                    indicator = torch.zeros_like(probabilities)
-                    indicator[state] = 1.0
-                    suffix = build(scope[1:], {**context, var: state})
-                    branches.append(product([leaf(var, indicator), suffix]))
-                    weights.append(probability)
-                ns = mixture(branches, weights)
-        memo[key] = ns
-        return ns
+            indicator = inputs(var, torch.eye(cards[var], dtype=torch.float64))
+            assignments = torch.arange(entries)
+            edges = [assignments % cards[var]]
+            edges.extend(_project_assignments(assignments, target, scope, cards)
+                         for scope, _ in messages)
+            product = juice.multiply(indicator, *(node for _, node in messages),
+                                     edge_ids=torch.stack(edges, dim=1))
+            contexts = entries // cards[var]
+            node = juice.summate(
+                product, num_nodes=contexts, block_size=1,
+                edge_ids=torch.stack((assignments // cards[var], assignments)),
+            )
+            node.set_params(weights.flatten(), normalize=False)
+        factors.append((separator, log_mass, node))
 
-    root = build(tuple(range(len(order))), {})
-    if root.is_input():
-        root = mixture([product([root])], [1.0])
+    roots = [node for _, _, node in factors]
+    root = roots[0]
+    if len(roots) > 1 or root.is_input():
+        product = juice.multiply(*roots)
+        root = juice.summate(product, num_nodes=1, block_size=1)
+        root.set_params(torch.ones(1, dtype=torch.float64), normalize=False)
     root.bn_variable_order = order
+    root.bn_elimination_order = tuple(order[v] for v in elimination)
     root.bn_state_names = state_names
     root.bn_state_to_index = {
         node: {state: i for i, state in enumerate(states)}
         for node, states in state_names.items()
     }
-    root.bn_num_nodes = node_count
+    root.bn_num_nodes = plan["scalar_nodes"]
+    root.bn_num_node_groups = plan["node_groups"]
+    root.bn_log_scale = sum(float(mass) for _, mass, _ in factors)
+    root.bn_compilation_stats = {key: value for key, value in plan.items() if key != "steps"}
+    logging.info("Exact packed VE: %s scalar nodes in %s groups; peak factor %s entries",
+                 root.bn_num_nodes, root.bn_num_node_groups, plan["peak_factor_entries"])
     return root
 
 def save_pc(root: "CircuitNodes", path: str):
@@ -202,7 +176,7 @@ def save_pc(root: "CircuitNodes", path: str):
 
     Uses a versioned pickle containing a flat node table: shared subcircuits are
     stored once, without pickling PyJuice's cyclic region graph or GPU buffers.
-    This format supports the scalar categorical circuits built by this module;
+    This format supports packed categorical circuits with scalar blocks;
     pass the root, not a compiled TensorCircuit or PCInference instance. The
     parent directory must exist. A ``.pkl`` suffix is recommended, not required.
     Call construct_cache(root, path) during training to also write the
@@ -216,28 +190,26 @@ def save_pc(root: "CircuitNodes", path: str):
     )
     if any(not hasattr(root, name) for name in metadata_names):
         raise ValueError("The circuit is missing bn_to_pc metadata.")
+    metadata_names += tuple(name for name in (
+        "bn_elimination_order", "bn_num_node_groups", "bn_log_scale", "bn_compilation_stats",
+    ) if hasattr(root, name))
 
     # Use the evaluator's iterative postorder traversal, independent of the
     # mutable traversal-order flag on PyJuice nodes.
     nodes, indices = [], {}
-    pending = [(root, False)]
-    while pending:
-        node, ready = pending.pop()
-        if node in indices:
-            continue
-        if not ready:
-            pending.append((node, True))
-            pending.extend((child, False) for child in reversed(node.chs))
-            continue
-        if node.num_nodes != 1 or node.block_size != 1:
-            raise ValueError("Only scalar circuits produced by bn_to_pc are supported.")
-        record = {"children": tuple(indices[child] for child in node.chs)}
+    for node in _pc_postorder(root):
+        if node.block_size != 1:
+            raise ValueError("Only block_size=1 circuits produced by bn_to_pc are supported.")
+        record = {"children": tuple(indices[child] for child in node.chs),
+                  "num_nodes": node.num_nodes}
         if node.is_input():
             if not isinstance(node.dist, Categorical) or len(node.scope) != 1:
                 raise ValueError("Only single-variable categorical leaves are supported.")
-            record.update(kind="input", variable=node.scope.to_list()[0])
+            record.update(kind="input", variable=node.scope.to_list()[0],
+                          num_cats=node.dist.num_cats)
         else:
             record["kind"] = "product" if node.is_prod() else "sum"
+            record["edge_ids"] = node.edge_ids.detach().cpu().numpy().copy()
         if not node.is_prod():
             params = node.get_params()
             if params is None:
@@ -247,7 +219,7 @@ def save_pc(root: "CircuitNodes", path: str):
         nodes.append(record)
 
     payload = {
-        "format": "bn_to_pc", "version": 1, "nodes": nodes,
+        "format": "bn_to_pc", "version": 2, "nodes": nodes,
         "metadata": {name: getattr(root, name) for name in metadata_names},
     }
     with _atomic_pc_file(path) as handle:
@@ -274,7 +246,7 @@ def construct_cache(root: CircuitNodes, path: str, *, device="cuda"):
             parameters = node.get_params()
             if ((parameters > 0) & (parameters.float() == 0)).any():
                 raise ValueError(
-                    "Some CPT probabilities underflow in float32; "
+                    "Some circuit probabilities underflow in float32; "
                     "use save_pc and PCInference(..., device='cpu') for this BN."
                 )
     save_pc(root, path)

@@ -11,8 +11,6 @@ import tempfile
 from functools import lru_cache
 from importlib.metadata import version
 from pathlib import Path
-from functools import lru_cache
-import logging
 from math import prod
 import networkx as nx
 
@@ -24,6 +22,129 @@ from pyjuice.graph import RegionGraph
 
 if TYPE_CHECKING:
     from pyjuice.nodes import CircuitNodes
+
+
+def _elimination_plan(scopes, cards, order):
+    """Dry run: dense bucket sizes and scalar nodes in the packed compiler."""
+    factors = [(frozenset(scope), False) for scope in scopes]
+    steps, nodes, peak, groups = [], 0, 0, 0
+    for var in order:
+        bucket = [(scope, message) for scope, message in factors if var in scope]
+        factors = [(scope, message) for scope, message in factors if var not in scope]
+        union = frozenset().union(*(scope for scope, _ in bucket))
+        separator = tuple(sorted(union - {var}))
+        contexts = prod(cards[v] for v in separator)
+        entries = contexts * cards[var]
+        has_messages = any(message for _, message in bucket)
+        nodes += contexts + (cards[var] + entries if has_messages else 0)
+        groups += 3 if has_messages else 1
+        peak = max(peak, entries)
+        steps.append((var, separator, entries, has_messages))
+        factors.append((frozenset(separator), True))
+    # A single categorical or multiple disconnected components need a root wrapper.
+    if len(factors) > 1 or not steps[-1][3]:
+        nodes += 2
+        groups += 2
+    return {"steps": steps, "scalar_nodes": nodes, "node_groups": groups,
+            "peak_factor_entries": peak,
+            "total_factor_entries": sum(step[2] for step in steps)}
+
+
+def _choose_elimination_order(scopes, cards):
+    """Choose among weighted min-fill/min-bucket orders and local improvements.
+
+    These are elimination orders on CPT factor scopes (the moral graph), not
+    topological BN orders. We optimize the actual dense packed-circuit estimate;
+    this heuristic does not claim globally minimum treewidth or circuit size.
+    """
+    size = len(cards)
+    candidates = [tuple(range(size)), tuple(reversed(range(size)))]
+    for criterion in ("fill", "entries", "nodes"):
+        factors = [(frozenset(scope), False) for scope in scopes]
+        remaining, order = set(range(size)), []
+        while remaining:
+            adjacency = {v: set() for v in remaining}
+            for scope, _ in factors:
+                for v in scope:
+                    adjacency[v].update(scope - {v})
+
+            def score(v):
+                bucket = [(s, m) for s, m in factors if v in s]
+                neighbors = sorted(adjacency[v])
+                contexts = prod(cards[u] for u in neighbors)
+                entries = contexts * cards[v]
+                nodes = contexts + (entries + cards[v] if any(m for _, m in bucket) else 0)
+                fill = sum(cards[a] * cards[b] for i, a in enumerate(neighbors)
+                           for b in neighbors[i + 1:] if b not in adjacency[a])
+                primary = {"fill": fill, "entries": entries, "nodes": nodes}[criterion]
+                return primary, nodes, entries, v
+
+            var = min(remaining, key=score)
+            separator = frozenset(adjacency[var])
+            factors = [(s, m) for s, m in factors if var not in s]
+            factors.append((separator, True))
+            remaining.remove(var)
+            order.append(var)
+        candidates.append(tuple(order))
+
+    def cost(order):
+        plan = _elimination_plan(scopes, cards, order)
+        return plan["scalar_nodes"], plan["peak_factor_entries"], plan["total_factor_entries"]
+
+    best = min(candidates, key=cost)
+    best_cost = cost(best)
+    # Bounded insertion search is cheap for the small BNs used here. Restrict
+    # large models to adjacent swaps so planning itself does not become costly.
+    for _ in range(3):
+        improved = best
+        for start in range(size):
+            targets = range(size) if size <= 20 else range(max(0, start - 1), min(size, start + 2))
+            for stop in targets:
+                trial = list(best)
+                trial.insert(stop, trial.pop(start))
+                trial = tuple(trial)
+                trial_cost = cost(trial)
+                if trial_cost < best_cost:
+                    improved, best_cost = trial, trial_cost
+        if improved == best:
+            break
+        best = improved
+    return best
+
+
+def _align_factor(values, scope, target, cards):
+    """View a factor in target-axis order, broadcasting absent variables."""
+    present = [v for v in target if v in scope]
+    axes = [scope.index(v) for v in present]
+    return values.permute(axes).reshape(tuple(cards[v] if v in scope else 1 for v in target))
+
+
+def _project_assignments(assignments, target, scope, cards):
+    """Map flat target assignments to a packed separator's row indices."""
+    result = torch.zeros_like(assignments)
+    strides, stride = {}, 1
+    for var in reversed(target):
+        strides[var] = stride
+        stride *= cards[var]
+    for var in scope:
+        result = result * cards[var] + (assignments // strides[var]) % cards[var]
+    return result
+
+
+def _pc_postorder(root):
+    """Visit shared node groups once, independent of PyJuice traversal flags."""
+    seen, pending = set(), [(root, False)]
+    while pending:
+        node, ready = pending.pop()
+        if node in seen:
+            continue
+        if not ready:
+            pending.append((node, True))
+            pending.extend((child, False) for child in reversed(node.chs))
+        else:
+            seen.add(node)
+            yield node
+
 
 @contextmanager
 def _atomic_pc_file(path):
@@ -114,10 +235,12 @@ def _save_compiled_pc(root, circuit, device):
         handle.write(stream.getbuffer())
 
 def optimize_variable_order(bn, *, max_search_states=50_000):
-    """Return a topological order minimizing estimated sum/product node count.
+    """Legacy conditioning-order optimizer, retained for existing callers.
 
-    The cost matches ``bn_to_pc``'s component decomposition and boundary-context
-    memoization when all CPT entries are positive. Leaves are excluded because
+    The cost matches the former recursive compiler's component decomposition
+    and boundary-context memoization when all CPT entries are positive.
+    The packed VE compiler uses ``_choose_elimination_order`` instead.
+    Leaves are excluded because
     their deduplication depends on actual probabilities. For sparse CPTs this is
     a dense structural estimate, not an exact count of the pruned circuit.
 

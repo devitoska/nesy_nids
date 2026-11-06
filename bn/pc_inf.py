@@ -11,7 +11,7 @@ from pyjuice.nodes.distributions import Categorical
 
 from bn.pc_utils import (
     _pc_cache_key, _attach_cache_location, _gpu_cache_key,
-    _encode_query_batch, _load_compiled_pc,
+    _encode_query_batch, _load_compiled_pc, _pc_postorder,
 )
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ def load_pc(path: str) -> "CircuitNodes":
     with open(path, "rb") as handle:
         payload = pickle.load(handle)
     if (not isinstance(payload, dict) or payload.get("format") != "bn_to_pc"
-            or payload.get("version") != 1):
+            or payload.get("version") not in (1, 2)):
         raise ValueError("Unsupported PC file format or version.")
     records = payload.get("nodes")
     metadata = payload.get("metadata")
@@ -62,16 +62,19 @@ def load_pc(path: str) -> "CircuitNodes":
             raise ValueError("PC file contains an invalid child reference.")
         children = [nodes[i] for i in child_ids]
         kind = record["kind"]
+        num_nodes = record.get("num_nodes", 1)
+        edges = (torch.from_numpy(record["edge_ids"])
+                 if payload["version"] == 2 and kind != "input" else None)
         if kind == "input":
             params = torch.from_numpy(record["params"])
             node = juice.inputs(
-                record["variable"], num_nodes=1, block_size=1,
-                dist=Categorical(num_cats=params.numel()),
+                record["variable"], num_nodes=num_nodes, block_size=1,
+                dist=Categorical(num_cats=record.get("num_cats", params.numel())),
             )
         elif kind == "product":
-            node = juice.multiply(*children)
+            node = juice.multiply(*children, edge_ids=edges)
         elif kind == "sum":
-            node = juice.summate(*children, num_nodes=1, block_size=1)
+            node = juice.summate(*children, num_nodes=num_nodes, block_size=1, edge_ids=edges)
         else:
             raise ValueError(f"Unknown circuit node kind {kind!r}.")
         if kind != "product":
@@ -79,14 +82,18 @@ def load_pc(path: str) -> "CircuitNodes":
         nodes.append(node)
 
     root = nodes[-1]
-    for name in metadata_names:
-        setattr(root, name, metadata[name])
+    if root.num_nodes != 1:
+        raise ValueError("A BN circuit must have exactly one root output.")
+    for name in (*metadata_names, "bn_elimination_order", "bn_num_node_groups",
+                 "bn_log_scale", "bn_compilation_stats"):
+        if name in metadata:
+            setattr(root, name, metadata[name])
     _attach_cache_location(root, path, key)
     return root
 
 
 class _CPUCircuit:
-    """Batch evaluator for the scalar categorical DAG produced by bn_to_pc.
+    """Batch evaluator for packed and legacy scalar categorical circuits.
 
     PyJuice's TensorCircuit compilation requires CUDA even when some compilation
     steps run on CPU. This evaluator instead plans the same DAG once and performs
@@ -96,45 +103,63 @@ class _CPUCircuit:
     def __init__(self, root):
         self.plan = []
         indices = {}
-        pending = [(root, False)]
-        while pending:
-            ns, ready = pending.pop()
-            if ns in indices:
-                continue
-            if not ready:
-                pending.append((ns, True))
-                pending.extend((child, False) for child in reversed(ns.chs))
-                continue
+        self.value_count, self.max_edges = 0, 0
+        for ns in _pc_postorder(root):
+            if ns.block_size != 1:
+                raise ValueError("CPU inference requires block_size=1 node groups.")
+            self.value_count += ns.num_nodes
             if ns.is_input():
                 variable, = ns.scope.to_list()
                 weights = ns.get_params().detach().cpu().double().clone()
-                operation = ("input", variable, weights.log())
+                operation = ("input", variable, weights.reshape(ns.num_nodes, -1).log(), None, ns.num_nodes)
             else:
                 children = tuple(indices[child] for child in ns.chs)
                 weights = (
                     ns.get_params().detach().cpu().double().flatten().clone().log()
                     if ns.is_sum() else None
                 )
-                operation = ("sum" if ns.is_sum() else "product", children, weights)
+                edges = ns.edge_ids.detach().cpu().long().clone()
+                self.max_edges = max(self.max_edges, edges.numel())
+                operation = ("sum" if ns.is_sum() else "product", children, weights, edges, ns.num_nodes)
             indices[ns] = len(self.plan)
             self.plan.append(operation)
+        self.uses = [0] * len(self.plan)
+        for kind, children, *_ in self.plan:
+            if kind != "input":
+                for child in children:
+                    self.uses[child] += 1
 
     def __call__(self, values, missing):
         outputs = []
-        for kind, inputs, weights in self.plan:
+        uses = self.uses.copy()
+        for kind, inputs, weights, edges, size in self.plan:
             if kind == "input":
-                result = weights[values[:, inputs]]
+                result = weights[:, values[:, inputs]]
                 result = torch.where(
-                    missing[:, inputs], torch.logsumexp(weights, dim=0), result
+                    missing[:, inputs], torch.logsumexp(weights, dim=1)[:, None], result
                 )
+            elif kind == "product":
+                result = torch.zeros((size, len(values)), dtype=torch.float64)
+                for column, child in enumerate(inputs):
+                    result.add_(outputs[child][edges[:, column]])
             else:
-                children = torch.stack([outputs[index] for index in inputs])
-                result = (
-                    torch.logsumexp(children + weights[:, None], dim=0)
-                    if kind == "sum" else children.sum(dim=0)
-                )
+                children = (outputs[inputs[0]] if len(inputs) == 1
+                            else torch.cat([outputs[index] for index in inputs]))
+                terms = children[edges[1]] + weights[:, None]
+                parents = edges[0, :, None].expand(-1, len(values))
+                maxima = torch.full((size, len(values)), -torch.inf, dtype=torch.float64)
+                maxima.scatter_reduce_(0, parents, terms, reduce="amax", include_self=True)
+                # All-zero branches must return -inf, not NaN.
+                offsets = torch.where(torch.isfinite(maxima), maxima, 0.0)
+                terms.sub_(offsets[edges[0]]).exp_()
+                result = torch.zeros_like(maxima).scatter_add_(0, parents, terms).log_() + offsets
+            if kind != "input":
+                for child in inputs:
+                    uses[child] -= 1
+                    if uses[child] == 0:
+                        outputs[child] = None
             outputs.append(result)
-        return outputs[-1]
+        return outputs[-1][0]
 
 
 class PCInference:
@@ -155,8 +180,9 @@ class PCInference:
 
     ``batch_size`` bounds the number of joint queries evaluated together (each
     posterior row generates one joint query per target state). CPU chunks are
-    additionally limited to roughly 64 MiB of stored node values, excluding
-    temporary tensors. Compiled caches are specific to the software and GPU.
+    additionally limited using stored node counts and packed edge temporaries
+    (roughly 64 MiB, with a minimum batch size of one). Compiled caches are
+    specific to the software and GPU.
     CUDA execution also requires a working Triton/CUDA compiler toolchain; pass
     ``device="cpu"`` explicitly to use CPU even when a CUDA device is visible.
     CUDA requires a compatible cache prepared by construct_cache during training.
@@ -183,6 +209,7 @@ class PCInference:
         cached = root.__dict__.pop("_pc_cached_circuit", None)
         cached_gpu = root.__dict__.pop("_pc_cached_gpu", None)
         if self.device.type == "cuda":
+            self.batch_size = min(self.batch_size, 32)
             if cached is None and hasattr(root, "_pc_cache_path"):
                 cached, cached_gpu = _load_compiled_pc(root._pc_cache_path, root._pc_cache_key)
             if cached is not None and cached_gpu == _gpu_cache_key(self.device):
@@ -200,18 +227,19 @@ class PCInference:
         else:
             self.circuit = _CPUCircuit(self.root)
             self.batch_size = min(
-                self.batch_size, max(1, (64 * 1024**2) // (8 * self.root.bn_num_nodes))
+                self.batch_size, max(1, (64 * 1024**2) //
+                                     (8 * (self.circuit.value_count + 3 * self.circuit.max_edges)))
             )
 
     def _forward(self, values, missing):
         if self.device.type == "cpu":
-            return self.circuit(values, missing)
+            return self.circuit(values, missing) + getattr(self.root, "bn_log_scale", 0.0)
         # Both tensors are batch-first; the flag also resolves square-mask
         # ambiguity in PyJuice when batch size equals the number of variables.
         return self.circuit(
             values.to(self.device), missing_mask=missing.to(self.device),
             _batch_first=True, force_use_fp32=True, apply_cudagraph=False,
-        ).reshape(-1).to(device="cpu", dtype=torch.float64)
+        ).reshape(-1).to(device="cpu", dtype=torch.float64) + getattr(self.root, "bn_log_scale", 0.0)
 
     @torch.inference_mode()
     def log_prob(self, evidence: Mapping | Sequence[Mapping]) -> np.ndarray:

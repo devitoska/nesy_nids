@@ -96,15 +96,19 @@ Stage durations measure work inside the scripts; the batch total also includes
 subprocess startup and shutdown. Failed stages retain their elapsed time with
 status `failed` and do not produce a successful batch timing row.
 
-BN-to-PC conversion automatically chooses a topological conditioning order that
-minimizes the estimated number of sum/product nodes, using state cardinalities
-and the graph's conditional component decomposition. This preserves the fitted
-BN probabilities and logs the estimated size before and after ordering. The
-estimate excludes deduplicated leaves and assumes positive CPT entries; sparse
-CPTs can produce smaller circuits. Search is limited to 50,000 subset states and
-falls back to the original topological order if that budget is exhausted.
-Direct callers of `bn_to_pc` can still supply `variable_order` explicitly.
-The chosen order is saved in the PC metadata and used when encoding evidence.
+BN-to-PC conversion uses exact bucket variable elimination and packs separator
+assignments into indexed PyJuice node vectors. A weighted factor-scope heuristic
+chooses the elimination order to reduce estimated scalar circuit size. It
+preserves the fitted BN and its full joint distribution; no probability pruning
+or state merging is used. Intermediate messages are normalized, with their
+probability masses carried forward in log space. Complexity still depends on
+induced separator sizes and variable cardinalities.
+Direct callers of `bn_to_pc` can supply `elimination_order` (any permutation),
+separately from `variable_order` (topological input-column order). Saved metadata
+records both orders, scalar/group counts, and factor-size estimates. `max_nodes`
+limits scalar nodes, not packed groups. Version-2 files store packed edges;
+inference also reads existing version-1 scalar files. CUDA inference still needs
+a compiled cache prepared on the target GPU; CPU inference uses float64 log space.
 
 CLOSR can also run directly:
 
