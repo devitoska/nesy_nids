@@ -8,7 +8,7 @@ random_state = 42
 train_1_split = 0.4
 train_2_split = 0.4
 test_split = 0.2
-num_bins = 50
+num_bins = 30
 
 def preprocess(data, output_dir="data/dataset/lycos-ids2017", mode = "base"):
     data = data.copy()

@@ -96,6 +96,16 @@ Stage durations measure work inside the scripts; the batch total also includes
 subprocess startup and shutdown. Failed stages retain their elapsed time with
 status `failed` and do not produce a successful batch timing row.
 
+BN-to-PC conversion automatically chooses a topological conditioning order that
+minimizes the estimated number of sum/product nodes, using state cardinalities
+and the graph's conditional component decomposition. This preserves the fitted
+BN probabilities and logs the estimated size before and after ordering. The
+estimate excludes deduplicated leaves and assumes positive CPT entries; sparse
+CPTs can produce smaller circuits. Search is limited to 50,000 subset states and
+falls back to the original topological order if that budget is exhausted.
+Direct callers of `bn_to_pc` can still supply `variable_order` explicitly.
+The chosen order is saved in the PC metadata and used when encoding evidence.
+
 CLOSR can also run directly:
 
 ```bash

@@ -11,6 +11,10 @@ import tempfile
 from functools import lru_cache
 from importlib.metadata import version
 from pathlib import Path
+from functools import lru_cache
+import logging
+from math import prod
+import networkx as nx
 
 import numpy as np
 import torch
@@ -108,6 +112,133 @@ def _save_compiled_pc(root, circuit, device):
     with _atomic_pc_file(root._pc_cache_path) as handle:
         pickle.dump({"key": root._pc_cache_key, "gpu": _gpu_cache_key(device)}, handle)
         handle.write(stream.getbuffer())
+
+def optimize_variable_order(bn, *, max_search_states=50_000):
+    """Return a topological order minimizing estimated sum/product node count.
+
+    The cost matches ``bn_to_pc``'s component decomposition and boundary-context
+    memoization when all CPT entries are positive. Leaves are excluded because
+    their deduplication depends on actual probabilities. For sparse CPTs this is
+    a dense structural estimate, not an exact count of the pruned circuit.
+
+    Dynamic programming explores remaining-variable subsets, not assignments.
+    Search is bounded: if the state budget is exhausted, retain the original
+    topological order. Ties also retain that order. The BN is never modified.
+    The caller must supply a nonempty, validated, fitted discrete BN.
+    """
+    original = tuple(nx.topological_sort(bn))
+    indices = {node: i for i, node in enumerate(original)}
+    cards = tuple(int(bn.get_cpds(node).variable_card) for node in original)
+    parents = tuple(
+        sum(1 << indices[parent] for parent in bn.predecessors(node))
+        for node in original
+    )
+    neighbors = tuple(
+        sum(1 << indices[other] for other in
+            set(bn.predecessors(node)) | set(bn.successors(node)))
+        for node in original
+    )
+
+    def members(mask):
+        while mask:
+            bit = mask & -mask
+            yield bit.bit_length() - 1
+            mask ^= bit
+
+    @lru_cache(maxsize=None)
+    def layout(mask):
+        boundary = 0
+        for var in members(mask):
+            boundary |= parents[var] & ~mask
+        contexts = prod(cards[var] for var in members(boundary))
+        components = []
+        remaining = mask
+        while remaining:
+            frontier = remaining & -remaining
+            component = 0
+            while frontier:
+                component |= frontier
+                remaining &= ~frontier
+                adjacent = 0
+                for var in members(frontier):
+                    adjacent |= neighbors[var]
+                frontier = adjacent & remaining
+            components.append(component)
+        return contexts, tuple(components)
+
+    def original_cost(mask):
+        if mask.bit_count() <= 1:
+            return 0
+        contexts, components = layout(mask)
+        if len(components) > 1:
+            # The builder wraps each decomposed scope in one product and sum
+            # for every assignment of its external parents.
+            return 2 * contexts + sum(original_cost(c) for c in components)
+        var = next(members(mask))
+        return contexts * (cards[var] + 1) + original_cost(mask & ~(1 << var))
+
+    class SearchBudgetExceeded(Exception):
+        pass
+
+    choices = {}
+    searched = 0
+
+    @lru_cache(maxsize=None)
+    def solve(mask):
+        nonlocal searched
+        if searched >= max_search_states:
+            raise SearchBudgetExceeded
+        searched += 1
+        if mask.bit_count() <= 1:
+            return 0
+        contexts, components = layout(mask)
+        if len(components) > 1:
+            return 2 * contexts + sum(solve(c) for c in components)
+
+        best_cost, best_var = None, None
+        for var in members(mask):
+            if parents[var] & mask:
+                continue  # Only condition on variables whose parents are assigned.
+            cost = contexts * (cards[var] + 1) + solve(mask & ~(1 << var))
+            if best_cost is None or cost < best_cost:
+                best_cost, best_var = cost, var
+        choices[mask] = best_var
+        return best_cost
+
+    def ordered_indices(mask):
+        if mask.bit_count() <= 1:
+            yield from members(mask)
+            return
+        _, components = layout(mask)
+        if len(components) > 1:
+            for component in components:
+                yield from ordered_indices(component)
+        else:
+            var = choices[mask]
+            yield var
+            yield from ordered_indices(mask & ~(1 << var))
+
+    full_scope = (1 << len(original)) - 1
+    # bn_to_pc wraps a singleton input in one product and one sum.
+    root_wrapper = 2 if len(original) == 1 else 0
+    baseline = original_cost(full_scope) + root_wrapper
+    try:
+        cost = solve(full_scope) + root_wrapper
+    except SearchBudgetExceeded:
+        logging.warning(
+            "BN-to-PC ordering search reached %d states; retaining the original "
+            "topological order (estimated internal nodes: %d).",
+            max_search_states, baseline,
+        )
+        return original
+
+    order = (tuple(original[i] for i in ordered_indices(full_scope))
+             if cost < baseline else original)
+    logging.info(
+        "BN-to-PC ordering: estimated internal nodes %d -> %d (%d search states).",
+        baseline, cost, searched,
+    )
+    return order
 
 
 def _encode_query_batch(root, evidence, *, deduplicate=True):

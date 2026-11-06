@@ -14,10 +14,11 @@ from pgmpy.models import DiscreteBayesianNetwork
 
 from bn.pc_utils import (
     _atomic_pc_file, _pc_cache_key, _attach_cache_location,
-    _save_compiled_pc,
+    _save_compiled_pc, optimize_variable_order,
     # Old sidecars pickle these names under bn.pc_build. Keep them importable.
     _restore_cached_node, _restore_cached_region,
 )
+
 from bn.utils import load_bn
 
 def bn_to_pc(
@@ -33,7 +34,9 @@ def bn_to_pc(
             The model and its CPDs are never modified.
         variable_order: Optional topological ordering containing every BN node
             exactly once. Controls both conditioning order and input columns.
-            Defaults to NetworkX's topological order of the supplied model.
+            Defaults to a topological order optimized for estimated internal
+            circuit size. The bounded search falls back to NetworkX's order
+            if its search budget is exhausted. Explicit orders are preserved.
         max_nodes: Maximum number of scalar circuit nodes constructed, including
             leaves and wrapper nodes. None disables the limit. This is not a
             memory limit on subsequent PyJuice compilation.
@@ -76,7 +79,7 @@ def bn_to_pc(
     if not bn.check_model():
         raise ValueError("The Bayesian network failed check_model().")
 
-    order = tuple(nx.topological_sort(bn) if variable_order is None else variable_order)
+    order = tuple(optimize_variable_order(bn) if variable_order is None else variable_order)
     if len(order) != len(bn.nodes) or set(order) != set(bn.nodes):
         raise ValueError("variable_order must contain every BN node exactly once.")
     indices = {node: i for i, node in enumerate(order)}
