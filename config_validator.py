@@ -120,6 +120,12 @@ validation_schema = {
                     "min": 0,
                     "default": None
                   },
+                  "max_lendirpath": {
+                    "type": "integer",
+                    "required": False,
+                    "min": 0,
+                    "default": 3
+                  },
                   "tabu_length": {
                     "type": "integer",
                     "required": False,
